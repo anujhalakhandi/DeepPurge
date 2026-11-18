@@ -2,8 +2,9 @@
 
 A deep system clean for rooted ColorOS phones that **keeps app logins**, plus network and kernel tuning.
 
-- **Now:** a Termux script (`deeppurge.sh`). It runs as root, asks simple Y/N questions per section, does a test run first, and always reboots at the end.
-- **Later:** a KernelSU/Magisk module with a WebUI. The module only *sets things*: one-shot boot scripts, no watcher or daemon. See [docs/ROADMAP.md](docs/ROADMAP.md).
+Two ways to use it, same engine:
+- **Termux script** (`deeppurge.sh`). Runs as root, asks simple Y/N questions per section, offers a test run first, and always reboots at the end.
+- **KernelSU module with a WebUI.** Boot tuning with a toggle per setting, and the cleaner sections as toggles. Nothing runs in the background, and the cleaner never runs on its own. See [Module](#module).
 
 Built and tested on a OnePlus 15 (CPH2747), ColorOS 17 / Android 17, with ReSukiSU (KernelSU fork).
 
@@ -29,7 +30,16 @@ Built and tested on a OnePlus 15 (CPH2747), ColorOS 17 / Android 17, with ReSuki
 | 11 | ART reset & dalvik wipe |
 | 12 | Storage GC & TRIM |
 
-## Install (Termux)
+## Module
+Download **DeepPurge-v….zip** from the [latest release](https://github.com/anujhalakhandi/DeepPurge/releases/latest) and install it in your root manager (KernelSU / ReSukiSU). Reboot, then open the module's WebUI.
+
+- **Boot tuning**: each network/kernel setting has its own toggle. They're applied once at the start of boot and again 20 s after it, then nothing runs. Each one shows whether it was applied at the last boot. A setting your kernel doesn't have is shown as **Not supported** and can't be turned on.
+- **Clean**: toggle the sections you want, then press **Test run** (measures only, no reboot) or **Run & reboot**. **Full deep clean** runs every section except Fresh reinstall, and greys out and turns off the section toggles. Fresh reinstall needs a typed YES each time.
+- **Revert** puts section 1 settings back to stock and turns all tuning off. Use it before uninstalling.
+- The cleaner needs Termux installed: it runs with Termux's `bash`. Without Termux, only the boot tuning works, and the WebUI says so.
+- Installing the module removes the old standalone boot scripts in `/data/adb/post-fs-data.d/` and `/data/adb/service.d/`, because the module applies the tuning now.
+
+## Install the Termux script
 1. On the phone, download **[deeppurge.sh](https://github.com/anujhalakhandi/DeepPurge/releases/latest/download/deeppurge.sh)** from the latest release. It saves to the `Download` folder. If an older copy is there, delete it first, so the browser doesn't save it as `deeppurge (1).sh`.
 2. Open Termux and paste:
 ```bash

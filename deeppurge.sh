@@ -1,5 +1,5 @@
 #!/data/data/com.termux/files/usr/bin/bash
-#  DEEPPURGE 10.0 — deep clean for rooted OnePlus 15
+#  DEEPPURGE 10.1 — deep clean for rooted OnePlus 15
 #  ColorOS 17 · KernelSU · app logins preserved
 #
 #  Safety rules this script follows:
@@ -26,11 +26,17 @@
 #         deeppurge -y         full run, no questions (never does Fresh reinstall)
 #         deeppurge --restore  reinstall apps removed by Fresh reinstall, one by one
 #         deeppurge --revert   undo settings & boot tweaks (cleaning can't be undone)
+#  Non-interactive (used by the module's WebUI, works in Termux too):
+#         deeppurge --sections=3,4,6   run only these sections, no questions, then reboot
+#         deeppurge --sections=all     every section except Fresh reinstall, then reboot
+#         … --dry                      test run of the same selection: measure only, no reboot
+#         … --fresh-yes                confirm Fresh reinstall (section 10) without the prompt
+#         deeppurge --fresh-list       print the apps Fresh reinstall would remove, then exit
 
 # The whole script is one { … } block: bash reads it completely before
 # running, so replacing this file during a run cannot affect that run.
 {
-VERSION="10.0"
+VERSION="10.1"
 
 # ── Configuration ────────────────────────────────────────────────────
 GC_MAX_SECONDS=300     # F2FS urgent GC stops when done, stalled, or after this long (0 = skip)
@@ -42,12 +48,17 @@ KEPT_AUTO_MAX=10       # with -y, kept-data apps are only removed if there are t
 KEEP_APPS="com.termux com.termux.api com.termux.boot com.termux.widget com.resukisu.resukisu app.morphe.manager"
 
 ASSUME_YES=0; DO_REVERT=0; DO_RESTORE=0
+SEL=""; DRYRUN=0; FRESH_YES=0; DO_FRESH_LIST=0
 for a in "$@"; do
   case "$a" in
     -y|--yes)    ASSUME_YES=1 ;;
     --revert)    DO_REVERT=1 ;;
     --restore)   DO_RESTORE=1 ;;
-    -h|--help)   printf 'Usage: deeppurge [-y|--yes] [--restore] [--revert]\n'; exit 0 ;;
+    --sections=*) SEL="${a#*=}"; ASSUME_YES=1 ;;
+    --dry)       DRYRUN=1 ;;
+    --fresh-yes) FRESH_YES=1 ;;
+    --fresh-list) DO_FRESH_LIST=1 ;;
+    -h|--help)   printf 'Usage: deeppurge [-y|--yes] [--restore] [--revert] [--sections=LIST|all] [--dry] [--fresh-yes] [--fresh-list]\n'; exit 0 ;;
   esac
 done
 
@@ -57,12 +68,18 @@ export PATH="/system/bin:/system/xbin:/vendor/bin:/data/adb/ksu/bin:$PATH"
 # ── Paths ────────────────────────────────────────────────────────────
 T_HOME=/data/data/com.termux/files/home
 T_PREFIX=/data/data/com.termux/files/usr
-LOG_DIR="$T_HOME/.deeppurge"
+# Logs live in Termux's home; without Termux (module only) they go to /data/adb
+if [ -d "$T_HOME" ]; then LOG_DIR="$T_HOME/.deeppurge"; else LOG_DIR=/data/adb/deeppurge/logs; fi
 LOG="$LOG_DIR/$(date +%Y%m%d-%H%M%S).log"
 TMPD="/dev/deeppurge.$$"
 BOOT_SCRIPT=/data/adb/service.d/99_deeppurge_tuning.sh
 EARLY_SCRIPT=/data/adb/post-fs-data.d/99_deeppurge_tuning.sh   # same tuning, at the very start of boot
 TUNE_STATUS=/data/adb/deeppurge_tuning.status                   # per-boot record: every value, both passes
+# DeepPurge module: when installed, it applies the tuning at boot instead of the two scripts above
+MOD_DIR=/data/adb/modules/deeppurge
+MOD_TUNE="$MOD_DIR/tuning.sh"
+TUNE_OFF=/data/adb/deeppurge/tuning.off   # settings turned off in the WebUI (one path per line)
+MODULE=0; [ -d "$MOD_DIR" ] && [ ! -e "$MOD_DIR/remove" ] && [ ! -e "$MOD_DIR/disable" ] && MODULE=1
 PENDING="$LOG_DIR/restore_pending.list"   # apps removed by Fresh reinstall, data kept
 USERS=$(ls /data/user 2>/dev/null | tr '\n' ' ')
 mkdir -p "$LOG_DIR" "$TMPD"
@@ -106,7 +123,7 @@ printf() {
   builtin printf "$fmt" "${out[@]}"
 }
 
-W=$(stty size </dev/tty 2>/dev/null | awk '{print $2}')
+W=$( { stty size </dev/tty; } 2>/dev/null | awk '{print $2}')
 [ -z "$W" ] && W=60; [ "$W" -gt 72 ] && W=72; [ "$W" -lt 44 ] && W=44
 
 log()    { printf '%s\n' "$*" >> "$LOG"; }
@@ -150,6 +167,10 @@ finish() {
 }
 spin() {
   local label="$1"; shift
+  if [ ! -t 1 ]; then   # no terminal (WebUI): one line, no animation
+    printf '          … %s\n' "$label"
+    "$@" >> "$LOG" 2>&1; return
+  fi
   "$@" >> "$LOG" 2>&1 &
   SPIN_PID=$!
   local i=0 t0=$SECONDS fr=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
@@ -165,7 +186,7 @@ spin() {
 gc_off() { local g; for g in /sys/fs/f2fs/*/gc_urgent; do [ -w "$g" ] && echo 0 > "$g"; done 2>/dev/null; }
 cleanup() {
   gc_off
-  printf '\033[?25h'
+  [ -t 1 ] && printf '\033[?25h'
   rm -rf "$TMPD"; rm -f "$LOCK"
   local id; id=$(stat -c %u "$T_HOME" 2>/dev/null)
   [ -n "$id" ] && chown -R "$id:$id" "$LOG_DIR" 2>/dev/null
@@ -627,8 +648,10 @@ tuning_body() {
 ST=/data/adb/deeppurge_tuning.status
 [ "$PASS" = 1 ] && : > "$ST"                    # new boot: start a fresh record
 echo "pass $PASS  boot+$(cut -d. -f1 /proc/uptime)s  $(date '+%F %T')" >> "$ST"
-# w PATH VALUE — write, read back, record ok / FAIL / missing
+OFF=/data/adb/deeppurge/tuning.off             # paths turned off in the module's WebUI
+# w PATH VALUE — write, read back, record ok / FAIL / missing / off
 w() {
+  if [ -f "$OFF" ] && grep -qxF "$1" "$OFF"; then echo "  off      $1" >> "$ST"; return; fi
   [ -e "$1" ] || { echo "  missing  $1" >> "$ST"; return; }
   { echo "$2" > "$1"; } 2>/dev/null
   got=$(tr -s ' \t\n' ' ' < "$1" 2>/dev/null | sed 's/ $//')
@@ -648,6 +671,16 @@ TUNE_EOF
 }
 
 install_tuning() {
+  if [ "$MODULE" -eq 1 ]; then
+    # The module runs this file at boot (pass 1 and pass 2); the standalone scripts would double it
+    rm -f "$EARLY_SCRIPT" "$BOOT_SCRIPT" /data/adb/post-fs-data.d/99_deeppurge_net.sh
+    { echo '#!/system/bin/sh'
+      echo '# DEEPPURGE tuning — run by the module: post-fs-data.sh (PASS=1), service.sh (PASS=2)'
+      echo 'PASS=${PASS:-now}'
+      tuning_body
+    } > "$MOD_TUNE.new" && chmod 644 "$MOD_TUNE.new" && mv -f "$MOD_TUNE.new" "$MOD_TUNE"
+    return
+  fi
   mkdir -p "${EARLY_SCRIPT%/*}" "${BOOT_SCRIPT%/*}"
   rm -f /data/adb/post-fs-data.d/99_deeppurge_net.sh   # older name of the early script
   { echo '#!/system/bin/sh'
@@ -678,16 +711,19 @@ sec_2() {
   if grep -q '^pass 1' "$TUNE_STATUS" 2>/dev/null; then
     item "Last boot: $p1/$n applied at start · $p2/$n re-applied after ${BOOT_DELAY}s"
   fi
-  sh "$BOOT_SCRIPT" --now >/dev/null 2>&1
+  if [ "$MODULE" -eq 1 ]; then PASS=now sh "$MOD_TUNE" >/dev/null 2>&1; else sh "$BOOT_SCRIPT" --now >/dev/null 2>&1; fi
   awk '/^pass now/{f=1;next} /^pass/{f=0} f' "$TUNE_STATUS" 2>/dev/null | tail -n "$n" > "$TMPD/tune_now"
   item "Applied now: $(grep -c '^  ok' "$TMPD/tune_now")/$n"
+  local off; off=$(grep -c '^  off' "$TMPD/tune_now")
+  [ "$off" -gt 0 ] && item "$off turned off in the module's WebUI"
   grep -E 'FAIL|missing' "$TMPD/tune_now" | while read -r bad; do warn "$bad"; done
   local cc qd
   cc=$(cat /proc/sys/net/ipv4/tcp_congestion_control 2>/dev/null)
   qd=$(cat /proc/sys/net/core/default_qdisc 2>/dev/null)
   item "TCP ${cc:-?} · qdisc ${qd:-?} · Fast Open · notsent_lowat 16K"
   item "Console logging & kernel tracing off · vfs_cache_pressure 50"
-  item "Applied at the start of every boot and again ${BOOT_DELAY}s after it"
+  if [ "$MODULE" -eq 1 ]; then item "Applied by the DeepPurge module at the start of every boot and again ${BOOT_DELAY}s after it"
+  else item "Applied at the start of every boot and again ${BOOT_DELAY}s after it"; fi
   finish
 }
 
@@ -841,9 +877,16 @@ sec_12() {
   finish
 }
 
+# WebUI: list what Fresh reinstall would remove ("user|sys PKG KB", "default TEXT"), then exit
+if [ "$DO_FRESH_LIST" -eq 1 ]; then
+  fresh_scan
+  sed 's/^/user /' "$TMPD/fresh_user"; sed 's/^/sys /' "$TMPD/fresh_sys"; sed 's/^/default /' "$TMPD/fresh_defaults"
+  exit 0
+fi
+
 # ── Header ───────────────────────────────────────────────────────────
 log "DEEPPURGE $VERSION — $(date)"
-clear
+[ -t 1 ] && clear
 printf '\n  %s%sDEEPPURGE%s  %sv%s%s\n' "$B" "$CY" "$R" "$D" "$VERSION" "$R"
 printf '  %sDeep system clean · app logins preserved%s\n' "$D" "$R"
 rule
@@ -878,9 +921,12 @@ if [ "$DO_REVERT" -eq 1 ]; then
       if command -v resetprop >/dev/null 2>&1; then resetprop -p -d "$p"; else setprop "$p" ""; fi
     done
     rm -f "$BOOT_SCRIPT" "$EARLY_SCRIPT" /data/adb/post-fs-data.d/99_deeppurge_net.sh
+    # module: turn every tuning setting off (the module stays installed, applying nothing)
+    if [ "$MODULE" -eq 1 ]; then mkdir -p "${TUNE_OFF%/*}"; tuning_body | sed -n 's/^w \([^ ]*\) .*/\1/p' > "$TUNE_OFF"; fi
   } >/dev/null 2>&1
   item "Animations back to 1×, telemetry & debug settings back to stock"
   item "Boot tweak script removed — reboot to return the kernel to stock"
+  [ "$MODULE" -eq 1 ] && item "Module tuning turned off — turn settings back on in the WebUI"
   printf '\n'; exit 0
 fi
 
@@ -997,6 +1043,31 @@ NSEC=${#SEC_TITLE[@]}
 I_FRESH=9   # "Fresh reinstall from Play" — opt-in only
 RUN=()
 FULL=0
+NONINT=0; { [ -n "$SEL" ] || [ "$DRYRUN" -eq 1 ]; } && NONINT=1
+# ── Non-interactive selection (--sections / --dry) ───────────────────
+if [ "$NONINT" -eq 1 ]; then
+  for ((i = 0; i < NSEC; i++)); do RUN[i]=0; done
+  if [ -z "$SEL" ] || [ "$SEL" = all ]; then
+    for ((i = 0; i < NSEC; i++)); do RUN[i]=1; done
+    RUN[I_FRESH]=0
+  else
+    for n in ${SEL//,/ }; do
+      case "$n" in ''|*[!0-9]*) continue ;; esac
+      [ "$n" -ge 1 ] && [ "$n" -le "$NSEC" ] && RUN[n-1]=1
+    done
+  fi
+  if [ "${RUN[I_FRESH]}" -eq 1 ] && [ "$DRYRUN" -eq 0 ]; then
+    if [ "$FRESH_YES" -eq 1 ]; then
+      spin "Finding apps Play Store can reinstall" fresh_scan
+      { echo "FRESH CANDIDATES (confirmed with --fresh-yes):"; cat "$TMPD/fresh_user" "$TMPD/fresh_sys"; } >> "$LOG"
+      FRESH_OK=1
+    else
+      RUN[I_FRESH]=0; warn "Fresh reinstall needs --fresh-yes — skipped"
+    fi
+  fi
+  [ "$DRYRUN" -eq 1 ] && DRY=1
+fi
+if [ "$NONINT" -eq 0 ]; then   # interactive: questions in the terminal (not indented, unchanged)
 # ── Optional test run ────────────────────────────────────────────────
 if [ "$ASSUME_YES" -eq 0 ] && ask "Do a test run first?" Y "measures what every section would free · changes nothing, no reboot"; then
   DRY=1; TOTAL=$NSEC; STEP=0; NAMES=(); FREED=()
@@ -1029,6 +1100,7 @@ else
   # asked last: the only step that removes apps (data kept)
   if fresh_prompt; then RUN[I_FRESH]=1; FRESH_OK=1; else RUN[I_FRESH]=0; fi
 fi
+fi   # end interactive
 
 for ((i = 0; i < NSEC; i++)); do [ "${RUN[i]}" -eq 1 ] && TOTAL=$((TOTAL + 1)); done
 if [ "$TOTAL" -eq 0 ]; then
@@ -1036,7 +1108,8 @@ if [ "$TOTAL" -eq 0 ]; then
 fi
 
 printf '\n'; rule
-printf '  %sRunning %d of %d sections · reboots when done%s\n' "$B" "$TOTAL" "$NSEC" "$R"
+if [ "$DRY" = 1 ]; then printf '  %sTest run · %d of %d sections · measuring only, nothing is changed%s\n' "$B" "$TOTAL" "$NSEC" "$R"
+else printf '  %sRunning %d of %d sections · reboots when done%s\n' "$B" "$TOTAL" "$NSEC" "$R"; fi
 rule
 START=$SECONDS
 
@@ -1044,6 +1117,11 @@ START=$SECONDS
 run_sections
 
 # ── Summary ──────────────────────────────────────────────────────────
+if [ "$DRY" = 1 ]; then   # --dry: estimate only, nothing changed, no reboot
+  print_summary "TEST RUN — ESTIMATE"
+  printf '  %sLog  ~/.deeppurge/%s%s\n\n' "$D" "${LOG##*/}" "$R"
+  exit 0
+fi
 print_summary "SUMMARY"
 printf '  %sLog  ~/.deeppurge/%s%s\n\n' "$D" "${LOG##*/}" "$R"
 if [ "$FRESH_DONE" -eq 1 ] || [ -s "$PENDING" ]; then
@@ -1061,11 +1139,15 @@ if ! apk_check; then
 fi
 item "All $(cat "$TMPD/apk_total") installed apps verified (APKs present)"
 
-for i in 5 4 3 2 1; do
-  printf '\r\033[K  %sRebooting in %ds%s  %s(Ctrl+C to cancel)%s' "$YL" "$i" "$R" "$D" "$R"
-  sleep 1
-done
-printf '\r\033[K  Rebooting…\n'
+if [ -t 1 ]; then
+  for i in 5 4 3 2 1; do
+    printf '\r\033[K  %sRebooting in %ds%s  %s(Ctrl+C to cancel)%s' "$YL" "$i" "$R" "$D" "$R"
+    sleep 1
+  done
+  printf '\r\033[K  Rebooting…\n'
+else
+  printf '  Rebooting in 5s\n'; sleep 5; printf '  Rebooting…\n'
+fi
 cleanup; trap - EXIT; settle 3; reboot
 exit 0
 }

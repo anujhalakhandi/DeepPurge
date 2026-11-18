@@ -3,3 +3,4 @@ __MACOSX/
 *.new
 *.log
 *.zip
+dist/
