@@ -2,10 +2,12 @@
 
 ## Principles
 - **Set and forget.** The module applies the tuning once at boot (`post-fs-data.sh`, then `service.sh` 20 s after boot) and exits. No watcher, loop or daemon. No `tc` replacement.
-- **The cleaner never runs on its own.** It runs only when you press Test run or Run & reboot in the WebUI, or run `deeppurge` in Termux.
-- **One engine.** `deeppurge.sh` is both the Termux command and the module's cleaner. The WebUI drives it with `--sections=`, `--dry` and `--fresh-yes`.
+- **The cleaner never runs on its own.** It runs only when you press a button in the WebUI, or run `deeppurge` in Termux.
+- **Quick clean** (no reboot) and **full clean** (always reboots, asks first).
+- **Never uninstalls apps.** No `pm uninstall` anywhere.
+- **One engine.** `deeppurge.sh` is both the Termux command and the module's cleaner. The WebUI drives it with `--mode=`, `--sections=`, `--dry` and `--reboot-ok`.
 - **Honest status.** Every tuning write is read back. Anything this phone doesn't support is labelled **Not supported** and can't be toggled.
-- **The hard rules in `CLAUDE.md` still apply**: no SD card, no APK removal, logins kept, a real run always reboots, and everything is deleted through `empty_dir`/`zap`.
+- **The hard rules in `CLAUDE.md` still apply**: no SD card, no app or APK removal, logins kept, and everything is deleted through `empty_dir`/`zap`.
 
 ## Layout
 ```
@@ -25,7 +27,7 @@ On the device: settings in `/data/adb/deeppurge/` (`tuning.off`, `webui.conf`, `
 
 ## Phases
 1. ✅ Repo, script v10.0, lint CI, automatic releases
-2. ✅ Module v10.1: boot tuning with per-setting toggles, cleaner sections with a Full toggle, WebUI
+2. ✅ v10.1: module and WebUI, quick/full clean, uninstall logic removed
 3. Try it on the device. Fix whatever the WebUI reports as not working
 4. Imports from [IMPORTS.md](IMPORTS.md), one at a time, starting with list A
 5. Optional: a WebUI button that installs the module's engine as the Termux command, so both copies stay the same version

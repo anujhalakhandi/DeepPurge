@@ -46,7 +46,7 @@ Add a `w PATH VALUE` line to `tuning_body` in `deeppurge.sh`. The WebUI then sho
 | Runtime debug props | `debug.sf.*`, `log.*`, `persist.logd.size`, `ro.lmk.debug=false` … (HC `x_props.txt`, ASB `asb_log_apply.sh`) | HC, ASB | Add a `p PROP VALUE` helper next to `w` (`resetprop -n`, read back with `getprop`). Runtime only, so it's applied every boot like the sysctls |
 
 ## C. One-shot settings in a cleaner section (section 1 style)
-Add `settings put …` lines to `sec_1`, and the matching `settings delete …` lines to `--revert`. These persist, so there's nothing to do at boot.
+Add `settings put …` lines to `sec_1` (safe in a quick clean), and the matching `settings delete …` lines to `--revert`. These persist, so there's nothing to do at boot.
 
 | Item | Settings | From | Notes |
 |---|---|---|---|
@@ -67,6 +67,7 @@ Add `settings put …` lines to `sec_1`, and the matching `settings delete …` 
 - Junk and cache cleanup (HC `cache_clean.sh`, ASB `asb_junk_cleanup.sh`): sections 3–6
 - F2FS GC and TRIM (HC `f2gc.sh`): section 12, run once instead of on a schedule
 - Ramdump props: section 1. The `enable_ramdumps` sysfs node was removed in 10.0 (missing on this kernel)
+- Anything a candidate adds to a cleaner section must say whether it is safe without a reboot (quick clean) or full-clean only (`boot_only`)
 
 ## Not suitable (needs a watcher or big code changes)
 These stay out because they need a loop, a daemon or per-SoC tables:

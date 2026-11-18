@@ -21,30 +21,30 @@ A very deep system clean that **keeps app logins**, plus network and kernel tuni
 ## Hard rules (never break)
 1. **Nothing on the SD card** is touched (`/sdcard`, `/data/media`).
 2. **No whitelist or custom app-set features.**
-3. **App logins and data are kept.** Never delete app data dirs, except in sections 9 and 10, which are verified and opt-in.
+2b. **Never install, uninstall or move apps.** No `pm uninstall` anywhere (Fresh reinstall and kept-data removal were removed in 10.1 as too risky for a public script).
+3. **App logins and data are kept.** Never delete app data dirs, except section 9's orphaned folders (packages Android has no record of, double-checked, capped).
 4. **Never remove or move APKs.** In v6 an APK sweep deleted 43 apps' APKs; recovering them took adb. "Such errors are unacceptable."
-5. Fresh reinstall must **keep ReSukiSU, Morphe and Termux** (not on Play Store).
+5. Section 5 never closes ReSukiSU, Morphe or Termux (`PROTECT_APPS`).
 6. **No `pm art cleanup`.** I run it manually.
-7. **No no-reboot option.** Always reboot. (A test run, `--dry`, changes nothing and doesn't reboot.)
-8. Fresh reinstall is asked **once, at the start** (typed YES).
+7. **Two kinds of clean.** Quick clean: only items safe while Android runs, never reboots. Full clean: everything, always ends with a reboot, and **asks permission before anything changes** (Termux question / WebUI ticked box / `--reboot-ok`). A test run (`--dry`) changes nothing and doesn't reboot.
+8. Items only rebuilt at boot or held open by running apps are full-clean only: wrap them in `boot_only` (worker) and `bitem` (output line), and keep `SEC_MODE` / `SEC_QUICK_SKIP` in sync.
 9. Everything deleted goes through `empty_dir`/`zap`, so a test run (DRY=1) only measures.
 10. Don't touch `/data/oplus/os` (battery/auto-start rules), `/data/oplus/multimedia` (weather alert sounds) or `/data/oplus/uxicons` (themed icons). In uxicons, only `temp_u0`, `__MACOSX` and `.DS_Store` may be cleared.
 11. I'm OK with some risk ("we can be a bit unsafe"), but nothing that breaks apps.
 
 ## Module rules
 - **No watcher, loop or daemon.** Boot tuning runs once per pass and exits. The cleaner never runs on its own: only from the WebUI buttons or Termux.
-- **Full deep clean** toggle = `--sections=all`. Turning it on greys out and turns off the section toggles.
-- Fresh reinstall in the WebUI needs a typed YES for each run and is never saved.
+- Quick/Full switch → `--mode=`. **All sections** toggle = `--sections=all`; turning it on greys out and turns off the section toggles. Full runs pass `--reboot-ok` only after the user ticks the reboot box.
 - **Report honestly.** Anything not supported on the device is labelled as such and can't be toggled. Nothing is silently skipped.
 - Nothing from ASB/HyperCool is added without being listed in `docs/IMPORTS.md` first and checked on the device.
 
-## Script structure (v10.1, 1153 lines)
+## Script structure (v10.1, 970 lines)
 - The whole script is wrapped in `{ … exit 0 }`, so replacing the file mid-run is safe. Single-instance lock at `/dev/deeppurge.lock`. Installs are atomic (`.new` + `mv`).
 - The ALL-CAPS `printf` wrapper only applies on a tty. The log is unaffected.
-- Flags: `--revert` (undo tuning and props, remove boot scripts; with the module, turns its tuning off), `--restore` (reinstall apps on the pending list). Non-interactive (WebUI): `--sections=LIST|all`, `--dry`, `--fresh-yes`, `--fresh-list`.
+- Flags: `--revert` (undo tuning and props, remove boot scripts; with the module, turns its tuning off). Non-interactive: `--mode=quick|full`, `--sections=LIST|all`, `--dry`, `--reboot-ok`; `-y` = full, all, reboot-ok. Unknown flags exit 2.
 - Module mode (`/data/adb/modules/deeppurge` present and enabled): `install_tuning` writes `$MOD_DIR/tuning.sh` instead of the `*.d` scripts. Settings turned off in the WebUI are listed in `/data/adb/deeppurge/tuning.off`, and `w` records them as `off`.
-- APK integrity check at the start, and again before reboot. **The reboot is refused if any installed app is missing its APK.**
-- Logs: `$HOME/.deeppurge/*.log`. Pending reinstall list: `$HOME/.deeppurge/restore_pending.list`.
+- APK integrity check at the start, and again before a full clean reboots. **The reboot is refused if any installed app is missing its APK.**
+- Logs: `$HOME/.deeppurge/*.log` (or `/data/adb/deeppurge/logs` without Termux).
 
 **Sections** (functions `sec_1`…`sec_12`):
 1. System settings & telemetry (setprops, including the ssr ramdump props)
@@ -56,11 +56,11 @@ A very deep system clean that **keeps app logins**, plus network and kernel tuni
 7. Activity history (`wipe_history`; usagestats, ColorOS power history, stat resets)
 8. ColorOS & Google telemetry (`purge_telemetry`; DCS, statsd, Clearcut, Firebase)
 9. Uninstalled-app leftovers (`sweep_leftovers`; verified with `pm list -u` and a per-package dumpsys check, max 15)
-10. Fresh reinstall from Play (`fresh_scan`/`fresh_purge`; opt-in, data kept)
-11. ART reset & dalvik wipe (`reset_profiles`; per-app `pm compile --reset`, not `-a`, which fails with "Failed transaction")
-12. Storage GC & TRIM (`storage_maint`; F2FS gc_urgent loop, `sm fstrim`)
+10. ART reset & dalvik wipe (`reset_profiles`; per-app `pm compile --reset`, not `-a`, which fails with "Failed transaction") — full clean only
+11. Storage GC & TRIM (`storage_maint`; F2FS gc_urgent loop, `sm fstrim`)
 
-Other functions: `fresh_prompt`, `run_sections`, `print_summary`, `apk_check`, `cleanup`.
+Quick clean (`SEC_MODE`): live = 1, 2, 5, 6, 9, 11 · mixed = 3, 4, 7, 8 · reboot = 10.
+Other functions: `boot_only`, `bitem`, `run_sections`, `print_summary`, `apk_check`, `cleanup`.
 
 ## Network / kernel tuning
 - One `tuning_body` is the single source. With the module, it's the module's `tuning.sh` (generated by `tools/build-module.sh`, rewritten by section 2), run by `post-fs-data.sh` (PASS=1) and `service.sh` (PASS=2). Without the module, it's written to two boot scripts:
