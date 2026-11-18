@@ -3,26 +3,23 @@
 Each `## <version>` heading becomes the notes of the GitHub release for that version.
 
 ## 10.1
+First release of the **DeepPurge module** for KernelSU, with a WebUI. It works on its own: no Termux, no bash, only the phone's built-in shell.
+
+**Boot tuning**
+- A toggle for each network/kernel setting. Applied once at boot start and again 20 s after boot. Nothing runs in the background.
+- Each setting shows whether it was applied at the last boot. Settings the kernel doesn't support are labelled **Not supported** and can't be toggled.
+
 **Two kinds of clean**
-- **Quick clean**: only what is safe while the phone is running. No reboot. Items that are rebuilt at boot or held open by running apps are left out and listed as "full clean only".
-- **Full clean**: everything, then a reboot. It now asks for permission first: in Termux you're asked before anything changes, and the WebUI needs a ticked "I understand the phone will reboot" box. Non-interactive runs need `--reboot-ok`, otherwise nothing is changed.
-
-**Removed: everything that uninstalls apps**
-- Fresh reinstall (old section 10), `--restore` and the reinstall list are gone.
-- Section 9 no longer removes apps that were uninstalled with their data kept. It only removes folders Android has no record of (double-checked, capped).
-- DeepPurge never runs `pm uninstall`. Sections are now 1–11: ART reset is 10, Storage GC & TRIM is 11.
-
-**KernelSU module with a WebUI (first release)**
-- Boot tuning with a toggle for each setting. It's applied once at boot start and again 20 s after boot, and nothing runs in the background. Each setting shows if it was applied at the last boot. Unsupported ones are labelled **Not supported** and can't be toggled.
-- Quick/Full switch, an **All sections** toggle that greys out the section toggles, Test run, live output with Stop, and Revert.
-- In a quick clean, ART reset is shown as "needs a reboot" and can't be selected. Partly-quick sections say what they leave out.
+- **Quick clean**: only what is safe while the phone is running. No reboot. What it leaves out is listed as "full clean only".
+- **Full clean**: everything, then a reboot. It needs a ticked "I understand the phone will reboot" box before it starts, and it still refuses to reboot if any installed app is missing its APK.
+- **All sections** toggle (greys out the section toggles), Test run, live output with Stop, and Revert.
 - The cleaner never runs on its own. The manager's Action button only shows the tuning status.
 
-**Script**
-- Flags: `--mode=quick|full`, `--sections=LIST|all`, `--dry`, `--reboot-ok`; `-y` = full clean of every section with reboot permission. Unknown flags are refused.
-- With the module installed, section 2 updates the module's tuning instead of the standalone boot scripts, and `--revert` turns the module's tuning off.
-- Plain output when there's no terminal. Logs go to `/data/adb/deeppurge/logs` without Termux.
-- Code cleanup: 1071 → 970 lines.
+**Removed**
+- Everything that uninstalls apps: Fresh reinstall, the reinstall list, and removal of apps uninstalled with their data kept. DeepPurge never runs `pm uninstall`.
+
+**Termux script: deprecated**
+- `deeppurge.sh` is no longer developed and isn't part of the module. It stays attached to releases for existing users. See the README for how to remove it and its leftovers.
 
 ## 10.0
 First release on GitHub. Termux script, 12 sections, run as root.

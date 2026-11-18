@@ -175,25 +175,19 @@ let running = false;
 
 function parseProbe(txt) {
   const r = { kv: {}, sec: [], tune: [], boots: [] };
-  const secN = n => (r.sec[n - 1] = r.sec[n - 1] || { n, title: "", hint: "", mode: "live", skip: "" });
   for (const line of txt.split("\n")) {
     if (!line) continue;
     const f = line.split("|");
-    if (f[0] === "S") secN(+f[1]).title = f[2];
-    else if (f[0] === "H") secN(+f[1]).hint = f[2];
-    else if (f[0] === "M") secN(+f[1]).mode = f[2];
-    else if (f[0] === "Q") secN(+f[1]).skip = f[2];
+    if (f[0] === "S") r.sec.push({ n: +f[1], mode: f[2], title: f[3], hint: f[4] || "", skip: f[5] || "" });
     else if (f[0] === "T") r.tune.push({ path: f[1], value: f[2], exists: f[3] === "1", off: f[4] === "1", state: f[5] || "", detail: f[6] || "" });
     else if (f[0] === "B") r.boots.push(f[1]);
     else { const i = line.indexOf("="); if (i > 0) r.kv[line.slice(0, i)] = line.slice(i + 1); }
   }
-  r.sec = r.sec.filter(x => x && x.title);
   return r;
 }
 
 /* Why a section can't run in the current mode ("" = it can). */
 function sectionWhy(s) {
-  if (!P.kv.bash) return "Not supported: needs Termux. The cleaner runs with Termux's bash.";
   if (ui.mode === "quick" && s.mode === "reboot") return "Needs a reboot: full clean only.";
   return "";
 }
@@ -209,18 +203,16 @@ function tuneWhy(t) {
 /* ── Render ──────────────────────────────────────────────────────── */
 function render() {
   const k = P.kv;
-  $("ver").textContent = "v" + (k.engine || "?") + " · module " + (k.module || "?");
+  $("ver").textContent = k.module || "";
 
   const b = [];
   if (PREVIEW) b.push(["", "Preview mode: not running inside KernelSU. Showing sample data."]);
-  if (!k.bash) b.push(["warn", "Termux isn't installed, so the cleaner can't run. Boot tuning works without it."]);
   if (!k.oplusrom) b.push(["warn", "DeepPurge is made for ColorOS. On this ROM some sections will find nothing to clean."]);
-  if (k.termux_cmd && k.engine && k.termux_cmd !== k.engine) b.push(["", "Your Termux command is v" + k.termux_cmd + ". The module uses its own copy, v" + k.engine + "."]);
   $("banners").innerHTML = b.map(([c, t]) => `<div class="banner ${c}">${esc(t)}</div>`).join("");
 
   $("dev").innerHTML = [
     ["Device", k.model || k.model2], ["Build", (k.build || "") + " · Android " + (k.android || "?")],
-    ["Kernel", (k.kernel || "").split("-").slice(0, 3).join("-")], ["Cleaner", k.bash ? "Termux bash ✓" : "Needs Termux"],
+    ["Kernel", (k.kernel || "").split("-").slice(0, 3).join("-")],
   ].map(([a, v]) => `<dt>${esc(a)}</dt><dd>${esc(v || "?")}</dd>`).join("");
 
   // boot tuning
@@ -250,7 +242,6 @@ function render() {
     ? "Only what is safe while the phone runs. Caches that are rebuilt at boot are left for a full clean."
     : "Everything, including caches rebuilt at boot. The phone reboots when the clean is done, and you'll be asked first.";
   $("all").checked = ui.all;
-  $("all").disabled = !k.bash;
   $("secs").innerHTML = P.sec.map(s => {
     const why = sectionWhy(s);
     const dis = ui.all || !!why;
@@ -278,7 +269,7 @@ function selectionText(sel) {
   return "sections " + sel.replace(/,/g, ", ");
 }
 function updateButtons() {
-  const can = !!P.kv.bash && !!selection() && !running;
+  const can = !!selection() && !running;
   $("testBtn").disabled = !can;
   $("runBtn").disabled = !can;
   $("revertBtn").disabled = running;
@@ -324,7 +315,7 @@ async function startEngine(args, title) {
   running = true; updateButtons();
   $("out").textContent = "Starting…";
   showOut(title);
-  await exec(`mkdir -p ${CONF} && cd / && setsid ${q(P.kv.bash)} ${MOD}/deeppurge.sh ${args} > ${OUT} 2>&1 < /dev/null &`);
+  await exec(`mkdir -p ${CONF} && cd / && setsid sh ${MOD}/cleaner.sh ${args} > ${OUT} 2>&1 < /dev/null &`);
   poll(Date.now());
 }
 function poll(t0) {
@@ -399,13 +390,8 @@ $("applyNow").onclick = async () => {
   await refresh();
 };
 $("revertBtn").onclick = async () => {
-  const withBash = !!P.kv.bash;
-  const ok = await dialog("Revert", withBash
-    ? "<p>Puts section 1 settings back to stock and turns every tuning setting off. Reboot afterwards to return the kernel to stock.</p>"
-    : "<p>Termux isn't installed, so only the tuning can be reverted: every tuning setting is turned off. Reboot afterwards.</p>", "Revert", { danger: true });
-  if (!ok) return;
-  if (withBash) startEngine("--revert", "Revert");
-  else { P.tune.forEach(t => (t.off = true)); await saveTuneOff(); toast("Tuning off from the next boot"); render(); }
+  const ok = await dialog("Revert", "<p>Puts section 1 settings back to stock and turns every tuning setting off. Reboot afterwards to return the kernel to stock.</p>", "Revert", { danger: true });
+  if (ok) startEngine("--revert", "Revert");
 };
 
 async function refresh() {
@@ -427,19 +413,22 @@ async function refresh() {
 /* ── Preview data (only used outside KernelSU) ───────────────────── */
 function mockExec(cmd) {
   if (cmd.includes("probe.sh")) {
-    const titles = ["System settings & telemetry", "Network & kernel tuning", "System caches & temp files", "App, WebView & GPU caches",
-      "Browser & in-app web data", "Logs & crash reports", "Activity history", "ColorOS & Google telemetry",
-      "Uninstalled app leftovers", "ART reset & dalvik wipe", "Storage GC & TRIM"];
-    const modes = ["live", "live", "mixed", "mixed", "live", "live", "mixed", "mixed", "live", "reboot", "live"];
-    const skips = { 3: "package-manager & overlay caches (rebuilt at boot)", 4: "app code caches (in use by running apps)",
-      7: "history files (system services write them back until a reboot)", 8: "Clearcut & Firebase queues (open in running apps)" };
+    const secs = [
+      "1|live|System settings & telemetry|animations 0.85×, debug & telemetry toggles off|",
+      "2|mixed|System caches & temp files|package & overlay caches, temp, lost+found, OTA download, MTP data|package-manager & overlay caches (rebuilt at boot)",
+      "3|mixed|App, WebView & GPU caches|Android cache folders, browser/GPU & ad-SDK caches · logins kept|app code caches (in use by running apps)",
+      "4|live|Browser & in-app web data|site data in browsers & in-app web pages · cookies & logins kept|",
+      "5|live|Logs & crash reports|system, vendor, root, bug reports, crash reports & in-app logs|",
+      "6|mixed|Activity history|screen time, data usage, battery & power history, recents, notifications|history files (system services write them back until a reboot)",
+      "7|mixed|ColorOS & Google telemetry|ColorOS diagnostics, Android statsd, Google Clearcut, Firebase analytics|Clearcut & Firebase queues (open in running apps)",
+      "8|live|Uninstalled app leftovers|data of apps Android has no record of · double-checked, capped|",
+      "9|reboot|ART reset & dalvik wipe|profiles, dalvik & boot image · apps slower for a few days|all of it (dalvik and boot image are rebuilt at boot)",
+      "10|live|Storage GC & TRIM|smart F2FS garbage collection + TRIM|",
+    ];
     return { errno: 0, stderr: "", stdout: [
-      "module=v10.1", "engine=10.1", "termux_cmd=10.0", "bash=/data/data/com.termux/files/usr/bin/bash",
-      "model=OnePlus 15", "build=CPH2747_17.0.0.100", "android=17", "kernel=6.12.69-android16-8-g1234", "oplusrom=V17.0", "f2fs=1",
-      "avail_cc=reno cubic bbr", "running=",
-      ...titles.map((t, i) => `S|${i + 1}|${t}`), ...modes.map((m, i) => `M|${i + 1}|${m}`),
-      ...Object.entries(skips).map(([n, t]) => `Q|${n}|${t}`),
-      "H|3|package & overlay caches, temp, lost+found, OTA download, MTP data", "H|10|profiles, dalvik & boot image · apps slower for a few days",
+      "module=v10.1", "model=OnePlus 15", "build=CPH2747_17.0.0.100", "android=17", "kernel=6.12.69-android16-8-g1234",
+      "oplusrom=V17.0", "avail_cc=reno cubic bbr", "running=",
+      ...secs.map(x => "S|" + x),
       "B|pass 1  boot+4s  1970-01-01 00:00:04", "B|pass 2  boot+48s  2026-11-18 10:02:11",
       "T|/proc/sys/net/core/default_qdisc|fq_codel|1|0|ok|fq_codel", "T|/proc/sys/net/ipv4/tcp_congestion_control|bbr|1|0|ok|bbr",
       "T|/proc/sys/net/ipv4/tcp_fastopen|3|1|1|off|", "T|/sys/kernel/tracing/tracing_on|0|0|0|missing|",

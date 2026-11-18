@@ -1,34 +1,21 @@
 #!/usr/bin/env bash
 # Builds the flashable module zip and update.json into dist/.
-#   tools/build-module.sh            → dist/DeepPurge-v<VERSION>.zip, dist/update.json
+#   tools/build-module.sh   → dist/DeepPurge-v<version>.zip, dist/update.json
+# The version comes from module/module.prop (version=v10.1, versionCode=1001).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 REPO=${GITHUB_REPOSITORY:-anujhalakhandi/DeepPurge}
 
-VER=$(sed -n 's/^VERSION="\(.*\)"/\1/p' deeppurge.sh | head -n 1)
-[ -n "$VER" ] || { echo "VERSION= not found in deeppurge.sh" >&2; exit 1; }
+VER=$(sed -n 's/^version=v//p' module/module.prop)
+CODE=$(sed -n 's/^versionCode=//p' module/module.prop)
+[ -n "$VER" ] && [ -n "$CODE" ] || { echo "version= / versionCode= missing in module/module.prop" >&2; exit 1; }
 MAJ=${VER%%.*}; MIN=${VER#*.}; MIN=${MIN%%.*}
-CODE=$((10#$MAJ * 100 + 10#$MIN))          # 10.1 → 1001
+[ "$CODE" = $((10#$MAJ * 100 + 10#$MIN)) ] || { echo "versionCode $CODE doesn't match version $VER (expected $((10#$MAJ * 100 + 10#$MIN)))" >&2; exit 1; }
 ZIP="DeepPurge-v$VER.zip"
 
-rm -rf dist; mkdir -p dist/module
-cp -r module/. dist/module/
-sed -i "s/@VERSION@/$VER/; s/@VERSIONCODE@/$CODE/" dist/module/module.prop
-cp deeppurge.sh dist/module/deeppurge.sh
-
-# tuning.sh — the same file the engine writes when the module is installed (install_tuning)
-{
-  echo '#!/system/bin/sh'
-  echo '# DEEPPURGE tuning — run by the module: post-fs-data.sh (PASS=1), service.sh (PASS=2)'
-  echo 'PASS=${PASS:-now}'
-  awk "/cat << 'TUNE_EOF'/{f=1;next} /^TUNE_EOF/{f=0} f" deeppurge.sh
-} > dist/module/tuning.sh
-grep -q '^w /' dist/module/tuning.sh || { echo "tuning_body not found in deeppurge.sh" >&2; exit 1; }
-sh -n dist/module/tuning.sh
-
-find dist/module -name '*.sh' -exec chmod 755 {} +
-chmod 755 dist/module/META-INF/com/google/android/update-binary
-(cd dist/module && zip -qr -X "../$ZIP" .)
+rm -rf dist; mkdir -p dist
+for f in module/*.sh; do sh -n "$f"; done
+(cd module && zip -qr -X "../dist/$ZIP" . -x '*.DS_Store')
 
 cat > dist/update.json <<JSON
 {

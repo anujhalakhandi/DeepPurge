@@ -1,10 +1,10 @@
 name: release
-# Makes a GitHub release when VERSION= in deeppurge.sh changes on main
+# Makes a GitHub release when the version in module/module.prop changes on main
 # (or when run by hand from the Actions tab). Skips if that tag already exists.
 on:
   push:
     branches: [main]
-    paths: [deeppurge.sh, CHANGELOG.md, 'module/**', tools/build-module.sh]
+    paths: ['module/**', CHANGELOG.md, deeppurge.sh, tools/build-module.sh]
   workflow_dispatch:
 permissions:
   contents: write
@@ -18,46 +18,34 @@ jobs:
       - name: Read version
         id: v
         run: |
-          ver=$(sed -n 's/^VERSION="\(.*\)"/\1/p' deeppurge.sh | head -1)
-          [ -n "$ver" ] || { echo "VERSION= not found"; exit 1; }
-          grep -q "^#  DEEPPURGE $ver " deeppurge.sh || { echo "Header line doesn't say $ver"; exit 1; }
+          ver=$(sed -n 's/^version=v//p' module/module.prop)
+          [ -n "$ver" ] || { echo "version= not found in module/module.prop"; exit 1; }
           echo "ver=$ver" >> "$GITHUB_OUTPUT"
           if git rev-parse -q --verify "refs/tags/v$ver" >/dev/null; then
             echo "v$ver already released, nothing to do"; echo "skip=1" >> "$GITHUB_OUTPUT"
           fi
-      - name: Check script
+      - name: Check scripts
         if: steps.v.outputs.skip != '1'
         run: |
+          shellcheck -S warning -s sh module/*.sh
           bash -n deeppurge.sh
           shellcheck -S warning -e SC2034,SC2012,SC2155,SC2059,SC2016 deeppurge.sh
-          shellcheck -S warning -s sh module/*.sh
-      - name: Build release files
+      - name: Build
         if: steps.v.outputs.skip != '1'
         run: |
           ver=${{ steps.v.outputs.ver }}
-          tools/build-module.sh          # dist/DeepPurge-v$ver.zip + dist/update.json
-          cp deeppurge.sh dist/deeppurge.sh
+          tools/build-module.sh                       # dist/DeepPurge-v$ver.zip + dist/update.json
+          cp deeppurge.sh dist/deeppurge.sh           # deprecated Termux script
           (cd dist && sha256sum deeppurge.sh > deeppurge.sh.sha256)
-          lines=$(wc -l < deeppurge.sh)
-          # Notes: this version's CHANGELOG section, then install steps
           awk -v v="$ver" '$0=="## "v{f=1;next} /^## /{f=0} f' CHANGELOG.md > notes.md
           [ -s notes.md ] || { echo "No '## $ver' section in CHANGELOG.md"; exit 1; }
-          url="https://github.com/${{ github.repository }}/releases/download/v$ver/deeppurge.sh"
+          tver=$(sed -n 's/^VERSION="\(.*\)"/\1/p' deeppurge.sh | head -n 1)
           cat >> notes.md <<NOTES
 
-          ### Module (KernelSU)
-          Install \`DeepPurge-v$ver.zip\` from your root manager, reboot, then open the WebUI.
+          ### Install
+          Install \`DeepPurge-v$ver.zip\` in your root manager (KernelSU / ReSukiSU), reboot, then open the module's WebUI.
 
-          ### Termux script
-          Download \`deeppurge.sh\` below to \`Download\`, then:
-          \`\`\`
-          su -c 'cat /sdcard/Download/deeppurge.sh' > "\$PREFIX/bin/deeppurge.new" && bash -n "\$PREFIX/bin/deeppurge.new" && chmod 755 "\$PREFIX/bin/deeppurge.new" && mv -f "\$PREFIX/bin/deeppurge.new" "\$PREFIX/bin/deeppurge" && echo "✓ INSTALLED — \$(wc -l < "\$PREFIX/bin/deeppurge") LINES"
-          \`\`\`
-          Or download straight into Termux (public repo):
-          \`\`\`
-          curl -fsSL $url -o "\$PREFIX/bin/deeppurge.new" && bash -n "\$PREFIX/bin/deeppurge.new" && chmod 755 "\$PREFIX/bin/deeppurge.new" && mv -f "\$PREFIX/bin/deeppurge.new" "\$PREFIX/bin/deeppurge" && echo "✓ INSTALLED — \$(wc -l < "\$PREFIX/bin/deeppurge") LINES"
-          \`\`\`
-          Expected: **$lines lines**. SHA-256: \`$(cut -d' ' -f1 dist/deeppurge.sh.sha256)\`
+          The Termux script (\`deeppurge.sh\`, v$tver) is deprecated and only attached for existing users. It is separate from the module.
           NOTES
           sed -i 's/^          //' notes.md
       - name: Publish release
@@ -66,5 +54,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           ver=${{ steps.v.outputs.ver }}
-          gh release create "v$ver" dist/deeppurge.sh dist/deeppurge.sh.sha256 "dist/DeepPurge-v$ver.zip" dist/update.json \
+          gh release create "v$ver" "dist/DeepPurge-v$ver.zip" dist/update.json dist/deeppurge.sh dist/deeppurge.sh.sha256 \
             --target "$GITHUB_SHA" --title "DeepPurge $ver" --notes-file notes.md --latest

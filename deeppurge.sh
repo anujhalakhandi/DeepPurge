@@ -23,7 +23,7 @@
 #
 #  Usage: deeppurge                interactive: choose quick or full, optional test run
 #         deeppurge --revert       undo settings & boot tweaks (cleaning can't be undone)
-#  Non-interactive (used by the module's WebUI, works in Termux too):
+#  Non-interactive:
 #         deeppurge --mode=quick [--sections=LIST|all]              quick clean, no reboot
 #         deeppurge --mode=full  [--sections=LIST|all] --reboot-ok  full clean, then reboot
 #         deeppurge -y             same as --mode=full --sections=all --reboot-ok
@@ -62,18 +62,12 @@ export PATH="/system/bin:/system/xbin:/vendor/bin:/data/adb/ksu/bin:$PATH"
 # ── Paths ────────────────────────────────────────────────────────────
 T_HOME=/data/data/com.termux/files/home
 T_PREFIX=/data/data/com.termux/files/usr
-# Logs live in Termux's home; without Termux (module only) they go to /data/adb
-if [ -d "$T_HOME" ]; then LOG_DIR="$T_HOME/.deeppurge"; else LOG_DIR=/data/adb/deeppurge/logs; fi
+LOG_DIR="$T_HOME/.deeppurge"
 LOG="$LOG_DIR/$(date +%Y%m%d-%H%M%S).log"
 TMPD="/dev/deeppurge.$$"
 BOOT_SCRIPT=/data/adb/service.d/99_deeppurge_tuning.sh
 EARLY_SCRIPT=/data/adb/post-fs-data.d/99_deeppurge_tuning.sh   # same tuning, at the very start of boot
 TUNE_STATUS=/data/adb/deeppurge_tuning.status                   # per-boot record: every value, both passes
-# DeepPurge module: when installed, it applies the tuning at boot instead of the two scripts above
-MOD_DIR=/data/adb/modules/deeppurge
-MOD_TUNE="$MOD_DIR/tuning.sh"
-TUNE_OFF=/data/adb/deeppurge/tuning.off   # settings turned off in the WebUI (one path per line)
-MODULE=0; [ -d "$MOD_DIR" ] && [ ! -e "$MOD_DIR/remove" ] && [ ! -e "$MOD_DIR/disable" ] && MODULE=1
 USERS=$(ls /data/user 2>/dev/null | tr '\n' ' ')
 mkdir -p "$LOG_DIR" "$TMPD"
 LOCK=/dev/deeppurge.lock
@@ -576,10 +570,8 @@ tuning_body() {
 ST=/data/adb/deeppurge_tuning.status
 [ "$PASS" = 1 ] && : > "$ST"                    # new boot: start a fresh record
 echo "pass $PASS  boot+$(cut -d. -f1 /proc/uptime)s  $(date '+%F %T')" >> "$ST"
-OFF=/data/adb/deeppurge/tuning.off             # paths turned off in the module's WebUI
-# w PATH VALUE — write, read back, record ok / FAIL / missing / off
+# w PATH VALUE — write, read back, record ok / FAIL / missing
 w() {
-  if [ -f "$OFF" ] && grep -qxF "$1" "$OFF"; then echo "  off      $1" >> "$ST"; return; fi
   [ -e "$1" ] || { echo "  missing  $1" >> "$ST"; return; }
   { echo "$2" > "$1"; } 2>/dev/null
   got=$(tr -s ' \t\n' ' ' < "$1" 2>/dev/null | sed 's/ $//')
@@ -599,16 +591,6 @@ TUNE_EOF
 }
 
 install_tuning() {
-  if [ "$MODULE" -eq 1 ]; then
-    # The module runs this file at boot (pass 1 and pass 2); the standalone scripts would double it
-    rm -f "$EARLY_SCRIPT" "$BOOT_SCRIPT" /data/adb/post-fs-data.d/99_deeppurge_net.sh
-    { echo '#!/system/bin/sh'
-      echo '# DEEPPURGE tuning — run by the module: post-fs-data.sh (PASS=1), service.sh (PASS=2)'
-      echo 'PASS=${PASS:-now}'
-      tuning_body
-    } > "$MOD_TUNE.new" && chmod 644 "$MOD_TUNE.new" && mv -f "$MOD_TUNE.new" "$MOD_TUNE"
-    return
-  fi
   mkdir -p "${EARLY_SCRIPT%/*}" "${BOOT_SCRIPT%/*}"
   rm -f /data/adb/post-fs-data.d/99_deeppurge_net.sh   # older name of the early script
   { echo '#!/system/bin/sh'
@@ -639,19 +621,16 @@ sec_2() {
   if grep -q '^pass 1' "$TUNE_STATUS" 2>/dev/null; then
     item "Last boot: $p1/$n applied at start · $p2/$n re-applied after ${BOOT_DELAY}s"
   fi
-  if [ "$MODULE" -eq 1 ]; then PASS=now sh "$MOD_TUNE" >/dev/null 2>&1; else sh "$BOOT_SCRIPT" --now >/dev/null 2>&1; fi
+  sh "$BOOT_SCRIPT" --now >/dev/null 2>&1
   awk '/^pass now/{f=1;next} /^pass/{f=0} f' "$TUNE_STATUS" 2>/dev/null | tail -n "$n" > "$TMPD/tune_now"
   item "Applied now: $(grep -c '^  ok' "$TMPD/tune_now")/$n"
-  local off; off=$(grep -c '^  off' "$TMPD/tune_now")
-  [ "$off" -gt 0 ] && item "$off turned off in the module's WebUI"
   grep -E 'FAIL|missing' "$TMPD/tune_now" | while read -r bad; do warn "$bad"; done
   local cc qd
   cc=$(cat /proc/sys/net/ipv4/tcp_congestion_control 2>/dev/null)
   qd=$(cat /proc/sys/net/core/default_qdisc 2>/dev/null)
   item "TCP ${cc:-?} · qdisc ${qd:-?} · Fast Open · notsent_lowat 16K"
   item "Console logging & kernel tracing off · vfs_cache_pressure 50"
-  if [ "$MODULE" -eq 1 ]; then item "Applied by the DeepPurge module at the start of every boot and again ${BOOT_DELAY}s after it"
-  else item "Applied at the start of every boot and again ${BOOT_DELAY}s after it"; fi
+  item "Applied at the start of every boot and again ${BOOT_DELAY}s after it"
   finish
 }
 
@@ -793,12 +772,9 @@ if [ "$DO_REVERT" -eq 1 ]; then
       if command -v resetprop >/dev/null 2>&1; then resetprop -p -d "$p"; else setprop "$p" ""; fi
     done
     rm -f "$BOOT_SCRIPT" "$EARLY_SCRIPT" /data/adb/post-fs-data.d/99_deeppurge_net.sh
-    # module: turn every tuning setting off (the module stays installed, applying nothing)
-    if [ "$MODULE" -eq 1 ]; then mkdir -p "${TUNE_OFF%/*}"; tuning_body | sed -n 's/^w \([^ ]*\) .*/\1/p' > "$TUNE_OFF"; fi
   } >/dev/null 2>&1
   item "Animations back to 1×, telemetry & debug settings back to stock"
   item "Boot tweak script removed — reboot to return the kernel to stock"
-  [ "$MODULE" -eq 1 ] && item "Module tuning turned off — turn settings back on in the WebUI"
   printf '\n'; exit 0
 fi
 

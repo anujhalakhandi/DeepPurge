@@ -6,13 +6,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Syntax check
-        run: for f in $(git ls-files '*.sh'); do bash -n "$f"; done
-      - name: ShellCheck (engine)
+        run: |
+          bash -n deeppurge.sh
+          for f in module/*.sh; do sh -n "$f"; done
+      - name: ShellCheck (Termux script, deprecated)
         run: shellcheck -S warning -e SC2034,SC2012,SC2155,SC2059,SC2016 deeppurge.sh
       - name: ShellCheck (module, POSIX sh)
         run: shellcheck -S warning -s sh module/*.sh
       - name: Build module
-        run: tools/build-module.sh && sh -n dist/module/tuning.sh
+        run: tools/build-module.sh
       - name: Upload test build
         uses: actions/upload-artifact@v4
         with:

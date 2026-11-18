@@ -1,7 +1,7 @@
 id=deeppurge
 name=DeepPurge
-version=v@VERSION@
-versionCode=@VERSIONCODE@
+version=v10.1
+versionCode=1001
 author=anujhalakhandi
 description=Deep clean that keeps app logins, plus network & kernel tuning. Tuning is applied once at boot; the cleaner only runs when you start it in the WebUI.
 updateJson=https://github.com/anujhalakhandi/DeepPurge/releases/latest/download/update.json
