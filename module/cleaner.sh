@@ -30,7 +30,7 @@ LEFTOVER_CAP=15      # more leftover folders than this means something is off: r
 
 # number|kind|title|what it cleans|what a quick clean leaves out
 # kind: live = all of it works without a reboot · mixed = part of it needs a full clean · reboot = full clean only
-SECTIONS='1|live|System settings & telemetry|animations 0.85×, debug & telemetry toggles off|
+SECTIONS='1|live|System settings & telemetry|animations 0.85×, debug, network-saving & telemetry toggles|
 2|mixed|System caches & temp files|package & overlay caches, temp, lost+found, OTA download, MTP data|package-manager & overlay caches (rebuilt at boot)
 3|mixed|App, WebView & GPU caches|Android cache folders, browser/GPU & ad-SDK caches · logins kept|app code caches (in use by running apps)
 4|live|Browser & in-app web data|site data in browsers & in-app web pages · cookies & logins kept|
@@ -415,6 +415,13 @@ sec_1() {
     settings put system oppo_log_switch 0
     settings put system oplus_log_switch 0
     settings put system log_switch_type 0
+    settings put global mobile_data_always_on 0
+    settings put global network_recommendations_enabled 0
+    settings put global wifi_wakeup_enabled 0
+    for k in network_watchlist_enabled tron_enabled gmscorestat_enabled clearcut_enabled analytics_enabled uploading_enabled ga_collection_enabled; do
+      settings put global "$k" 0
+    done
+    settings put global limit_ad_tracking 1
     setprop persist.sys.assert.panic false
     setprop persist.sys.assert.enable false
     setprop persist.sys.oplus.log.config 0
@@ -424,6 +431,7 @@ sec_1() {
   item "Animation scale 0.85×"
   item "Child-process restrictions off"
   item "Error reports, debug logging, ramdumps & UX telemetry off"
+  item "Network power saving & telemetry switches set"
   finish
 }
 sec_2() {
@@ -517,7 +525,7 @@ if [ "$DO_REVERT" = 1 ]; then
   say "  Reverting settings & tuning"
   {
     for k in window_animation_scale transition_animation_scale animator_duration_scale; do settings put global "$k" 1.0; done
-    for k in settings_enable_monitor_phantom_procs send_action_app_error dropbox_max_files bugreport_in_power_menu; do settings delete global "$k"; done
+    for k in settings_enable_monitor_phantom_procs send_action_app_error dropbox_max_files bugreport_in_power_menu mobile_data_always_on network_recommendations_enabled wifi_wakeup_enabled network_watchlist_enabled tron_enabled gmscorestat_enabled clearcut_enabled analytics_enabled uploading_enabled ga_collection_enabled limit_ad_tracking; do settings delete global "$k"; done
     for k in send_action_app_error upload_debug_log_pref user_experience_enabled oplus_user_experience; do settings delete secure "$k"; done
     for k in user_experience_enabled oppo_log_switch oplus_log_switch log_switch_type; do settings delete system "$k"; done
     for p in persist.sys.assert.panic persist.sys.assert.enable persist.sys.oplus.log.config persist.vendor.ssr.enable_ramdumps persist.vendor.sys.ssr.enable_ramdumps; do

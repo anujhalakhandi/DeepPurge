@@ -28,3 +28,15 @@ w /proc/sys/net/ipv4/tcp_notsent_lowat 16384
 w /proc/sys/kernel/printk "0 0 0 0"
 w /proc/sys/vm/vfs_cache_pressure 50
 w /sys/kernel/tracing/tracing_on 0
+# Memory write-back (HyperCool vm_tune): fewer flash wake-ups
+w /proc/sys/vm/dirty_writeback_centisecs 6000
+w /proc/sys/vm/dirty_expire_centisecs 6000
+w /proc/sys/vm/dirty_background_ratio 20
+w /proc/sys/vm/dirty_ratio 40
+w /proc/sys/vm/stat_interval 60
+# Quiet kernel debug (HyperCool debug_off, AutoSystemBoost)
+w /proc/sys/kernel/printk_devkmsg off
+w /proc/sys/kernel/sched_schedstats 0
+w /proc/sys/kernel/nmi_watchdog 0
+w /proc/sys/kernel/perf_cpu_time_max_percent 2
+w /proc/sys/debug/exception-trace 0

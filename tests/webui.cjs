@@ -15,8 +15,11 @@ const t = (name, cond) => { console.log((cond ? '  ok   ' : '  FAIL ') + name); 
   await p.waitForTimeout(300);
   const lastRun = () => cmds.filter(c => c.includes('setsid')).pop() || '';
 
+  t('Optimizer tab shown first, tuning listed', (await p.$$('input[data-tune]')).length >= 3 && !(await p.isVisible('#runBtn')));
+  await p.click('#tabCln'); await p.waitForTimeout(100);
+  t('Cleaner tab shows modes', await p.isVisible('#modeQuick') && await p.isVisible('#runBtn'));
   t('no section list or All toggle', (await p.$$('input[data-sec], #all')).length === 0);
-  t('run button says quick', (await p.textContent('#runBtn')).includes('quick'));
+  t('run button says quick', (await p.getAttribute('#modeQuick', 'aria-pressed')) === 'true');
   await p.click('#runBtn'); await p.click('#dlgOk'); await p.waitForTimeout(1500);
   t('quick run command', /cleaner\.sh --mode=quick --sections=all /.test(lastRun()) && !lastRun().includes('reboot-ok'));
   t('while running: Close disabled, Stop enabled', await p.isDisabled('#closeOut') && !(await p.isDisabled('#cancelBtn')));

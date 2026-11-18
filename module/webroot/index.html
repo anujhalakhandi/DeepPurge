@@ -21,7 +21,7 @@ main{max-width:640px;margin:0 auto}
 h1{font-size:22px;letter-spacing:.08em;margin:4px 0 2px}
 h1 small{font-size:13px;color:var(--dim);letter-spacing:0;font-weight:500;margin-left:6px}
 .sub{color:var(--dim);font-size:13px;margin:0 0 14px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin:0 0 14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px;margin:0 0 14px;box-shadow:0 1px 2px #0000000d}
 .card h2{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin:0 0 10px}
 .note{font-size:13px;color:var(--dim);margin:6px 0 0}
 .banner{border-radius:12px;padding:10px 12px;font-size:13px;margin:0 0 14px;border:1px solid var(--line);background:var(--chip)}
@@ -70,52 +70,79 @@ dialog ul{padding-left:18px;margin:6px 0;font-size:13.5px}
 dialog input[type=text]{font:inherit;width:100%;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);margin-top:8px}
 .list{font:12px var(--mono);color:var(--dim)}
 .hidden{display:none!important}
+header.top{position:sticky;top:0;z-index:5;margin:0 -16px 14px;padding:calc(env(safe-area-inset-top) + 10px) 16px 10px;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+header.top h1{margin:0 0 8px;display:flex;align-items:baseline;gap:6px}
+.tabs{display:grid;grid-template-columns:1fr 1fr;gap:4px;background:var(--chip);border-radius:12px;padding:4px}
+.tabs button{border:0;background:transparent;padding:9px 10px;border-radius:9px;color:var(--dim)}
+.tabs button[aria-selected=true]{background:var(--card);color:var(--ink);box-shadow:0 1px 3px #0002}
+.hero{display:flex;align-items:center;gap:14px}
+.ring{--p:0;flex:none;width:64px;height:64px;border-radius:50%;display:grid;place-items:center;background:conic-gradient(var(--accent) calc(var(--p)*1%),var(--chip) 0)}
+.ring b{width:50px;height:50px;border-radius:50%;background:var(--card);display:grid;place-items:center;font-size:15px}
+.hero .big{font-size:18px;font-weight:700}
+.group{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);margin:14px 0 2px;font-weight:600}
+.modes{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.mode{text-align:left;padding:14px;border-radius:14px;border:1.5px solid var(--line)}
+.mode .ic{font-size:22px;display:block;margin-bottom:4px}
+.mode b{display:block;font-size:16px}
+.mode small{display:block;color:var(--dim);font-weight:500;font-size:12.5px;margin-top:2px}
+.mode[aria-pressed=true]{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,var(--card))}
+.runbar{display:flex;gap:10px;margin-top:14px}
+.runbar button{padding:14px 16px}
+.runbar .primary{flex:2}
 </style>
 </head>
 <body>
 <main>
-  <h1>DEEPPURGE <small id="ver"></small></h1>
-  <p class="sub">Deep clean that keeps app logins · network &amp; kernel tuning</p>
+  <header class="top">
+    <h1>DEEPPURGE <small id="ver"></small></h1>
+    <div class="tabs" role="tablist">
+      <button id="tabOpt" role="tab" data-tab="opt">⚡ Optimizer</button>
+      <button id="tabCln" role="tab" data-tab="cln">🧹 Cleaner</button>
+    </div>
+  </header>
   <div id="banners"></div>
 
-  <section class="card" id="devCard">
-    <h2>Device</h2>
-    <dl class="kv" id="dev"></dl>
-  </section>
+  <div id="paneOpt">
+    <section class="card">
+      <div class="hero">
+        <div class="ring" id="ring"><b id="ringTxt"></b></div>
+        <div><div class="big" id="optTitle"></div><div class="note" style="margin:0" id="bootInfo"></div></div>
+      </div>
+      <dl class="kv" id="dev" style="margin-top:12px"></dl>
+    </section>
+    <section class="card">
+      <div id="tune"></div>
+      <p class="note">Applied once at the start of boot and again 20 s after boot. Nothing runs in the background. A setting you turn off goes back to stock at the next reboot.</p>
+      <div class="btns"><button id="applyNow" class="primary grow">Apply now</button></div>
+    </section>
+    <section class="card">
+      <h2>Reset</h2>
+      <p class="note" style="margin:0 0 4px">Puts the system settings the cleaner changed back to stock and turns every tuning setting off. Cleaning can't be undone. Use this before uninstalling the module.</p>
+      <div class="btns"><button id="revertBtn" class="danger">Revert settings &amp; tuning</button></div>
+    </section>
+  </div>
 
-  <section class="card">
-    <h2>Boot tuning</h2>
-    <div id="bootInfo" class="note" style="margin:0 0 6px"></div>
-    <div id="tune"></div>
-    <p class="note">Applied once at the start of boot and again 20 s after boot. Nothing runs in the background. A setting you turn off goes back to stock at the next reboot.</p>
-    <div class="btns"><button id="applyNow">Apply now</button></div>
-  </section>
+  <div id="paneCln" class="hidden">
+    <section class="card">
+      <h2>Choose a clean</h2>
+      <div class="modes" role="group" aria-label="Kind of clean">
+        <button id="modeQuick" class="mode" data-mode="quick"><span class="ic">⚡</span><b>Quick clean</b><small>Safe while the phone runs. No reboot.</small></button>
+        <button id="modeFull" class="mode" data-mode="full"><span class="ic">🔥</span><b>Full clean</b><small>Everything, then reboots.</small></button>
+      </div>
+      <p class="note" id="modeNote"></p>
+      <div class="runbar">
+        <button id="testBtn" class="grow">Test run</button>
+        <button id="runBtn" class="primary">Run</button>
+      </div>
+      <p class="note">App logins and data are kept. The cleaner runs only when you press a button here.</p>
+    </section>
 
-  <section class="card">
-    <h2>Clean</h2>
-    <div class="seg" role="group" aria-label="Kind of clean">
-      <button id="modeQuick" data-mode="quick">Quick clean<small>No reboot</small></button>
-      <button id="modeFull" data-mode="full">Full clean<small>Ends with a reboot</small></button>
-    </div>
-    <p class="note" id="modeNote" style="margin:0 0 8px"></p>
-    <p class="note">The cleaner never runs on its own. It runs only when you press a button below.</p>
-    <div class="btns">
-      <button id="testBtn" class="grow">Test run</button>
-      <button id="runBtn" class="primary grow">Run</button>
-    </div>
-  </section>
-
-  <section class="card hidden" id="outCard">
-    <h2 id="outTitle">Output</h2>
-    <pre class="out" id="out"></pre>
-    <div class="btns"><button id="cancelBtn" class="danger grow" disabled>Stop</button><button id="closeOut" class="grow" disabled>Close</button></div>
-  </section>
-
-  <section class="card">
-    <h2>Revert</h2>
-    <p class="note" style="margin:0 0 4px">Puts section 1 settings back to stock and turns every tuning setting off. Cleaning can't be undone. Use this before uninstalling the module.</p>
-    <div class="btns"><button id="revertBtn" class="danger">Revert settings &amp; tuning</button></div>
-  </section>
+    <section class="card hidden" id="outCard">
+      <h2 id="outTitle">Output</h2>
+      <pre class="out" id="out"></pre>
+      <div class="btns"><button id="cancelBtn" class="danger grow" disabled>Stop</button><button id="closeOut" class="grow" disabled>Close</button></div>
+    </section>
+  </div>
 </main>
 
 <dialog id="dlg">
@@ -135,15 +162,25 @@ const OUT = CONF + "/run.out";
 const LOCK = "/dev/deeppurge.lock";
 
 const TUNE_LABEL = {
-  "/proc/sys/net/core/default_qdisc": ["Packet queue: fq_codel", "New network interfaces start on fq_codel. The active mobile link keeps the vendor queue."],
-  "/proc/sys/net/ipv4/tcp_congestion_control": ["TCP congestion control: BBR", "Better throughput and latency on lossy mobile links"],
-  "/proc/sys/net/ipv4/tcp_fastopen": ["TCP Fast Open", "Faster repeat connections (client and server)"],
-  "/proc/sys/net/ipv4/tcp_mtu_probing": ["MTU probing", "Finds a working packet size when the network blocks large ones"],
-  "/proc/sys/net/ipv4/tcp_slow_start_after_idle": ["No slow start after idle", "Connections keep their speed after a pause"],
-  "/proc/sys/net/ipv4/tcp_notsent_lowat": ["Less send buffering (16 KB)", "Lower latency for interactive traffic"],
-  "/proc/sys/kernel/printk": ["Quiet kernel console log", "Kernel messages stop going to the console"],
-  "/proc/sys/vm/vfs_cache_pressure": ["Keep file caches longer (50)", "Folder and file lookups stay cached"],
-  "/sys/kernel/tracing/tracing_on": ["Kernel tracing off", "Stops the always-on trace buffer"],
+  "/proc/sys/net/core/default_qdisc": ["Packet queue: fq_codel", "New network interfaces start on fq_codel. The active mobile link keeps the vendor queue.", "Network"],
+  "/proc/sys/net/ipv4/tcp_congestion_control": ["TCP congestion control: BBR", "Better throughput and latency on lossy mobile links", "Network"],
+  "/proc/sys/net/ipv4/tcp_fastopen": ["TCP Fast Open", "Faster repeat connections (client and server)", "Network"],
+  "/proc/sys/net/ipv4/tcp_mtu_probing": ["MTU probing", "Finds a working packet size when the network blocks large ones", "Network"],
+  "/proc/sys/net/ipv4/tcp_slow_start_after_idle": ["No slow start after idle", "Connections keep their speed after a pause", "Network"],
+  "/proc/sys/net/ipv4/tcp_notsent_lowat": ["Less send buffering (16 KB)", "Lower latency for interactive traffic", "Network"],
+  "/proc/sys/kernel/printk": ["Quiet kernel console log", "Kernel messages stop going to the console", "Kernel quiet"],
+  "/proc/sys/vm/vfs_cache_pressure": ["Keep file caches longer (50)", "Folder and file lookups stay cached", "Memory & storage"],
+  "/proc/sys/vm/dirty_writeback_centisecs": ["Flash write-back every 60 s", "Fewer storage wake-ups", "Memory & storage"],
+  "/proc/sys/vm/dirty_expire_centisecs": ["Dirty data expires after 60 s", "Pairs with the write-back interval", "Memory & storage"],
+  "/proc/sys/vm/dirty_background_ratio": ["Background write-back at 20 %", "Batches writes to flash", "Memory & storage"],
+  "/proc/sys/vm/dirty_ratio": ["Write-back limit 40 %", "How much dirty data may build up", "Memory & storage"],
+  "/proc/sys/vm/stat_interval": ["VM statistics every 60 s", "Less periodic CPU work", "Memory & storage"],
+  "/proc/sys/kernel/printk_devkmsg": ["/dev/kmsg writes off", "Apps can't flood the kernel log", "Kernel quiet"],
+  "/proc/sys/kernel/sched_schedstats": ["Scheduler statistics off", "Less accounting overhead", "Kernel quiet"],
+  "/proc/sys/kernel/nmi_watchdog": ["NMI watchdog off", "Not present on most phone kernels", "Kernel quiet"],
+  "/proc/sys/kernel/perf_cpu_time_max_percent": ["Perf sampling capped at 2 %", "Limits profiling overhead", "Kernel quiet"],
+  "/proc/sys/debug/exception-trace": ["Exception trace off", "No fault messages in the kernel log", "Kernel quiet"],
+  "/sys/kernel/tracing/tracing_on": ["Kernel tracing off", "Stops the always-on trace buffer", "Kernel quiet"],
 };
 
 /* ── KernelSU bridge ─────────────────────────────────────────────── */
@@ -204,18 +241,27 @@ function render() {
     ["Kernel", (k.kernel || "").split("-").slice(0, 3).join("-")],
   ].map(([a, v]) => `<dt>${esc(a)}</dt><dd>${esc(v || "?")}</dd>`).join("");
 
-  // boot tuning
+  // optimizer
   $("bootInfo").textContent = P.boots.length ? "Last boot: " + P.boots.map(x => x.replace(/\s+\d{4}-\d\d-\d\d.*$/, "")).join(" · ") : "No boot record yet. It is written at the next boot.";
+  P.tune.sort((x, y) => ((TUNE_LABEL[x.path] || [])[2] || "Other").localeCompare(((TUNE_LABEL[y.path] || [])[2] || "Other")) || (!!tuneWhy(x) - !!tuneWhy(y)));
+  const usable = P.tune.filter(t => !tuneWhy(t));
+  const active = usable.filter(t => !t.off);
+  const pct = P.tune.length ? Math.round(100 * active.length / P.tune.length) : 0;
+  $("ring").style.setProperty("--p", pct);
+  $("ringTxt").textContent = active.length + "/" + P.tune.length;
+  $("optTitle").textContent = active.length + " of " + P.tune.length + " tweaks on";
+  let lastG = null;
   $("tune").innerHTML = P.tune.map((t, i) => {
     const why = tuneWhy(t);
-    const [label, hint] = TUNE_LABEL[t.path] || [t.path.split("/").pop(), ""];
+    const [label, hint, grp] = TUNE_LABEL[t.path] || [t.path.split("/").pop(), "", "Other"];
     let chip;
     if (why) chip = `<span class="chip warn">${t.exists ? "Not applied" : "Not supported"}</span>`;
     else if (t.off) chip = `<span class="chip">Off</span>`;
     else if (t.state === "ok") chip = `<span class="chip ok">Applied</span>`;
     else if (t.state === "off") chip = `<span class="chip">On at next boot</span>`;
     else chip = `<span class="chip">Not applied yet</span>`;
-    return `<div class="row ${why ? "na" : ""}"><div class="txt">
+    const head = grp !== lastG ? `<div class="group">${esc(grp)}</div>` : ""; lastG = grp;
+    return head + `<div class="row ${why ? "na" : ""}"><div class="txt">
       <div class="t">${esc(label)}${chip}</div>
       ${hint ? `<div class="h">${esc(hint)}</div>` : ""}
       <div class="p">${esc(t.path)} = ${esc(t.value)}</div>
@@ -230,7 +276,7 @@ function render() {
   $("modeNote").textContent = quick
     ? "Only what is safe while the phone runs. Caches that are rebuilt at boot are left for a full clean."
     : "Everything, including caches rebuilt at boot. The phone reboots when the clean is done, and you'll be asked first.";
-  $("runBtn").textContent = quick ? "Run quick clean" : "Run full clean & reboot";
+  $("runBtn").textContent = quick ? "Run" : "Run & reboot";
 
   updateButtons();
 }
@@ -304,6 +350,17 @@ function poll(t0) {
 }
 
 /* ── Actions ─────────────────────────────────────────────────────── */
+function showTab(t) {
+  $("paneOpt").classList.toggle("hidden", t !== "opt");
+  $("paneCln").classList.toggle("hidden", t !== "cln");
+  $("tabOpt").setAttribute("aria-selected", t === "opt");
+  $("tabCln").setAttribute("aria-selected", t === "cln");
+  try { localStorage.setItem("dp_tab", t); } catch (e) {}
+}
+for (const id of ["tabOpt", "tabCln"]) $(id).onclick = () => showTab($(id).dataset.tab);
+let tab0 = "opt"; try { tab0 = localStorage.getItem("dp_tab") || "opt"; } catch (e) {}
+showTab(tab0 === "cln" ? "cln" : "opt");
+
 for (const id of ["modeQuick", "modeFull"]) {
   $(id).onclick = async () => { ui.mode = $(id).dataset.mode; await saveUi(); render(); };
 }
@@ -381,12 +438,12 @@ function mockExec(cmd) {
       "10|live|Storage GC & TRIM|smart F2FS garbage collection + TRIM|",
     ];
     return { errno: 0, stderr: "", stdout: [
-      "module=v10.1", "model=OnePlus 15", "build=CPH2747_17.0.0.100", "android=17", "kernel=6.12.69-android16-8-g1234",
+      "module=v10.2", "model=OnePlus 15", "build=CPH2747_17.0.0.100", "android=17", "kernel=6.12.69-android16-8-g1234",
       "oplusrom=V17.0", "avail_cc=reno cubic bbr", "running=",
       ...secs.map(x => "S|" + x),
       "B|pass 1  boot+4s  1970-01-01 00:00:04", "B|pass 2  boot+48s  2026-11-18 10:02:11",
       "T|/proc/sys/net/core/default_qdisc|fq_codel|1|0|ok|fq_codel", "T|/proc/sys/net/ipv4/tcp_congestion_control|bbr|1|0|ok|bbr",
-      "T|/proc/sys/net/ipv4/tcp_fastopen|3|1|1|off|", "T|/sys/kernel/tracing/tracing_on|0|0|0|missing|",
+      "T|/proc/sys/net/ipv4/tcp_fastopen|3|1|1|off|", "T|/proc/sys/vm/dirty_ratio|40|1|0|ok|40", "T|/proc/sys/kernel/nmi_watchdog|0|0|0|missing|", "T|/sys/kernel/tracing/tracing_on|0|0|0|missing|",
     ].join("\n") };
   }
   if (cmd.includes("cat " + OUT)) return { errno: 0, stderr: "", stdout: "  Quick clean · 1 of 11 sections · no reboot\n  [01/01] System caches & temp files\n          – Package-manager & overlay caches · full clean only\n          ✓ Done · 3s · 412.0 MB\n@@RUN=0\n" };
