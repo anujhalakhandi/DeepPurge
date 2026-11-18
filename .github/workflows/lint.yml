@@ -1,0 +1,11 @@
+name: lint
+on: [push, pull_request]
+jobs:
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax check
+        run: for f in $(git ls-files '*.sh'); do bash -n "$f"; done
+      - name: ShellCheck
+        run: shellcheck -S warning -e SC2034,SC2012,SC2155,SC2059,SC2016 $(git ls-files '*.sh')
