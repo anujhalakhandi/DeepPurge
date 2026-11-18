@@ -2,6 +2,18 @@
 
 Each `## <version>` heading becomes the notes of the GitHub release for that version.
 
+## 10.2
+**WebUI**
+- Two tabs: **Optimizer** (boot tuning, grouped, with an "n of N tweaks on" summary and a Reset) and **Cleaner** (Quick or Full). Cleaner gets bigger mode cards and a cleaner layout.
+- The 10 section toggles and the "All sections" switch are gone. You pick Quick clean or Full clean; each runs every section it can.
+- One Stop button and one Close button under the output. Close is greyed out and can't be pressed while a command runs; Stop is only active while one runs.
+
+**New tuning** (from HyperCool and AutoSystemBoost; anything the kernel lacks shows as Not supported)
+- Memory write-back: `dirty_writeback_centisecs`, `dirty_expire_centisecs` 6000, `dirty_background_ratio` 20, `dirty_ratio` 40, `stat_interval` 60.
+- Quiet kernel debug: `printk_devkmsg off`, `sched_schedstats 0`, `nmi_watchdog 0`, `perf_cpu_time_max_percent 2`, `exception-trace 0`.
+
+**Section 1 now also sets** (and Revert removes): network power saving (`mobile_data_always_on 0`, `network_recommendations_enabled 0`, `wifi_wakeup_enabled 0`) and telemetry switches (watchlist, tron, gmscorestat, clearcut, analytics, uploading, ga_collection off; `limit_ad_tracking 1`). Wi-Fi and Bluetooth scanning are left as they are.
+
 ## 10.1
 First release of the **DeepPurge module** for KernelSU, with a WebUI. It works on its own: no Termux, no bash, only the phone's built-in shell.
 

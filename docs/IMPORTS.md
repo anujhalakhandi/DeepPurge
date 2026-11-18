@@ -1,6 +1,6 @@
 # Import candidates: AutoSystemBoost & HyperCool
 
-Nothing on this list is in DeepPurge yet. It lists what we **could** add with small, direct changes, checked against the two projects' source:
+**Imported in 10.2** (still to be confirmed on the device): the memory write-back lines and the quiet-debug lines (table A, except mini ramdumps, debugfs tracing and the ASB per-profile values), network power saving and telemetry switches (table C). Background Wi-Fi/BLE scanning is deliberately left as it is. The rest of this list is not in DeepPurge yet. It lists what we **could** add with small, direct changes, checked against the two projects' source:
 
 - **AutoSystemBoost (ASB)** by Dima Krylov, MIT
 - **HyperCool (HC)** by Yudharn, GPL-3.0
