@@ -74,3 +74,6 @@ Check tuning after a reboot: `su -c 'cat /data/adb/deeppurge_tuning.status'`
 
 ## Status
 v10.0 is installed and working. Next: further tweaks as needed. Follow the rules above.
+
+## Releases (GitHub)
+Bump `VERSION=` and the header line, add a `## <version>` section to `CHANGELOG.md`, and push to `main`. The `release` workflow checks the script and publishes release `v<version>` with `deeppurge.sh` and its SHA-256. If the tag already exists, it does nothing.

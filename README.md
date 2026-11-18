@@ -35,7 +35,7 @@ Save `deeppurge.sh` to `Download`, then:
 su -c 'cat /sdcard/Download/deeppurge.sh' > "$PREFIX/bin/deeppurge.new" && bash -n "$PREFIX/bin/deeppurge.new" && chmod 755 "$PREFIX/bin/deeppurge.new" && mv -f "$PREFIX/bin/deeppurge.new" "$PREFIX/bin/deeppurge" && echo "✓ INSTALLED — $(wc -l < "$PREFIX/bin/deeppurge") LINES"
 ```
 
-Run `deeppurge`. Flags: `--revert` undoes the tuning and props and removes the boot scripts. `--restore` reinstalls the apps on the pending list.
+Get `deeppurge.sh` from the [latest release](../../releases/latest). Run `deeppurge`. Flags: `--revert` undoes the tuning and props and removes the boot scripts. `--restore` reinstalls the apps on the pending list.
 
 Check the tuning after a reboot:
 ```bash
