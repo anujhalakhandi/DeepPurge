@@ -30,12 +30,20 @@ Built and tested on a OnePlus 15 (CPH2747), ColorOS 17 / Android 17, with ReSuki
 | 12 | Storage GC & TRIM |
 
 ## Install (Termux)
-Save `deeppurge.sh` to `Download`, then:
+1. On the phone, download **[deeppurge.sh](https://github.com/anujhalakhandi/DeepPurge/releases/latest/download/deeppurge.sh)** from the latest release. It saves to the `Download` folder. If an older copy is there, delete it first, so the browser doesn't save it as `deeppurge (1).sh`.
+2. Open Termux and paste:
 ```bash
 su -c 'cat /sdcard/Download/deeppurge.sh' > "$PREFIX/bin/deeppurge.new" && bash -n "$PREFIX/bin/deeppurge.new" && chmod 755 "$PREFIX/bin/deeppurge.new" && mv -f "$PREFIX/bin/deeppurge.new" "$PREFIX/bin/deeppurge" && echo "✓ INSTALLED — $(wc -l < "$PREFIX/bin/deeppurge") LINES"
 ```
+   It prints the line count. Compare it with the number in the release notes.
+3. Run it:
+```bash
+deeppurge
+```
 
-Get `deeppurge.sh` from the [latest release](../../releases/latest). Run `deeppurge`. Flags: `--revert` undoes the tuning and props and removes the boot scripts. `--restore` reinstalls the apps on the pending list.
+Updating works the same way: download the new `deeppurge.sh`, then paste the command from step 2 again.
+
+Flags: `-y` does a full run with no questions. `--revert` undoes the tuning and props and removes the boot scripts. `--restore` reinstalls the apps on the pending list.
 
 Check the tuning after a reboot:
 ```bash
