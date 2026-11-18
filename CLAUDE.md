@@ -3,11 +3,21 @@
 Working context for any AI/dev session on this repo. **The product is the KernelSU module in `module/`.** The Termux script `deeppurge.sh` at the repo root is deprecated: it is kept only for existing users and is not part of the module. Import candidates from ASB/HyperCool: `docs/IMPORTS.md`.
 
 ## How to work with me (keep token use low)
+- **This file is the full context.** Don't re-explore the repo or re-derive what's written here.
 - **Never read a whole script.** Use `grep -n` to find the function you need, then read only those lines.
-- Make small, targeted edits. Don't rewrite whole sections.
-- Before handing back: `shellcheck -S warning -s sh module/*.sh` must be clean and `tools/build-module.sh` must build. If `deeppurge.sh` was touched: `bash -n deeppurge.sh` and `shellcheck -S warning -e SC2034,SC2012,SC2155,SC2059,SC2016 deeppurge.sh`.
-- Bump `version=` and `versionCode=` in `module/module.prop` on every release (`10.2` → `1002`).
+- Make small, targeted edits. Don't rewrite whole sections. Don't print files back.
+- **Let CI test, not the chat.** Run only `shellcheck -S warning -s sh module/*.sh` locally, push, then check the result in one line: `gh api "repos/anujhalakhandi/DeepPurge/actions/runs?head_sha=$(git rev-parse HEAD)" --jq '.workflow_runs[]|"\(.name)=\(.status)/\(.conclusion)"'`. Only on a failure, read the failing job's log tail. Don't take screenshots unless asked.
+- Work on a branch, open a PR, merge when CI is green and I've said so. Merging to `main` with a new `module.prop` version publishes a release.
+- Bump `version=` and `versionCode=` in `module/module.prop` on every release (`10.2` → `1002`), and add a `## 10.2` section to `CHANGELOG.md`.
 - Keep replies short: what changed, then one combined command block. I prefer **single command blocks**.
+
+## Tests (run by CI on every push: `.github/workflows/ci.yml`)
+- `tests/cleaner.sh` (needs root: `sudo bash tests/cleaner.sh`): runs `module/cleaner.sh` against stubbed Android commands under mksh, dash and busybox ash. Covers quick vs full, `--reboot-ok`, the APK check before reboot, `--dry`, `--revert`. Add a check here for any new cleaner behaviour.
+- `tests/webui.cjs` (`node tests/webui.cjs`, needs playwright): WebUI in preview mode — modes, All sections, reboot consent, the exact commands sent to the cleaner.
+- The `build` job uploads a test zip (artifact `DeepPurge-module-test`).
+
+## GitHub @claude
+`.github/workflows/claude.yml`: the owner writes `@claude …` in an issue or PR comment, and Claude (Sonnet, max 25 turns) works in Actions and pushes a branch / PR. Needs the repo secret `CLAUDE_CODE_OAUTH_TOKEN` (or `ANTHROPIC_API_KEY`).
 
 ## Device
 - OnePlus 15 (CPH2747), ColorOS 17 / Android 17, kernel 6.12.69-android16
@@ -75,10 +85,10 @@ A full clean runs `apk_check` before rebooting and **refuses to reboot if any in
 - fq_codel only takes effect on an interface when it is first brought up. The active rmnet link stays on Qualcomm's htb by design, and that's accepted. **There is no tc-replacement or watcher logic, and none should be added.**
 
 ## Status
-v10.1: first module release, not yet tested on the device. The Termux script is deprecated; moving off it (and removing its leftovers) is the user's job. Next: test on the device, then imports from `docs/IMPORTS.md`.
+v10.1: first module release (merged and released), not yet tested on the device. The Termux script is deprecated; moving off it (and removing its leftovers) is the user's job. Next: test on the device, then imports from `docs/IMPORTS.md`.
 
 ## Releases (GitHub)
-Bump `version=`/`versionCode=` in `module/module.prop`, add a `## <version>` section to `CHANGELOG.md`, and push to `main`. The `release` workflow checks the scripts, builds the module, and publishes release `v<version>` with `DeepPurge-v<version>.zip`, `update.json` (the module's update check reads it from the latest release) and the deprecated Termux script. If the tag already exists, it does nothing. CI uploads a test zip on every push.
+Bump `version=`/`versionCode=` in `module/module.prop`, add a `## <version>` section to `CHANGELOG.md`, and push to `main`. The `release` workflow checks the scripts, builds the module, and publishes release `v<version>` with `DeepPurge-v<version>.zip`, `update.json` (the module's update check reads it from the latest release) and the deprecated Termux script. If the tag already exists, it does nothing.
 
 ## Deprecated: Termux script (`deeppurge.sh`, 946 lines)
 Kept as is for existing users. Not part of the module and not developed further. It writes its own boot scripts (`/data/adb/post-fs-data.d/99_deeppurge_tuning.sh`, `/data/adb/service.d/99_deeppurge_tuning.sh`, status `/data/adb/deeppurge_tuning.status`) and logs to `~/.deeppurge/`. Don't run it together with the module: both would apply the tuning.

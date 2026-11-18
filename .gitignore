@@ -4,3 +4,4 @@ __MACOSX/
 *.log
 *.zip
 dist/
+node_modules/
