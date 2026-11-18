@@ -2,6 +2,25 @@
 
 Each `## <version>` heading becomes the notes of the GitHub release for that version.
 
+## 10.1
+First release of the **DeepPurge module** for KernelSU, with a WebUI. It works on its own: no Termux, no bash, only the phone's built-in shell.
+
+**Boot tuning**
+- A toggle for each network/kernel setting. Applied once at boot start and again 20 s after boot. Nothing runs in the background.
+- Each setting shows whether it was applied at the last boot. Settings the kernel doesn't support are labelled **Not supported** and can't be toggled.
+
+**Two kinds of clean**
+- **Quick clean**: only what is safe while the phone is running. No reboot. What it leaves out is listed as "full clean only".
+- **Full clean**: everything, then a reboot. It needs a ticked "I understand the phone will reboot" box before it starts, and it still refuses to reboot if any installed app is missing its APK.
+- **All sections** toggle (greys out the section toggles), Test run, live output with Stop, and Revert.
+- The cleaner never runs on its own. The manager's Action button only shows the tuning status.
+
+**Removed**
+- Everything that uninstalls apps: Fresh reinstall, the reinstall list, and removal of apps uninstalled with their data kept. DeepPurge never runs `pm uninstall`.
+
+**Termux script: deprecated**
+- `deeppurge.sh` is no longer developed and isn't part of the module. It stays attached to releases for existing users. See the README for how to remove it and its leftovers.
+
 ## 10.0
 First release on GitHub. Termux script, 12 sections, run as root.
 

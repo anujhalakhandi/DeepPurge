@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DeepPurge</title>
+<style>
+:root{
+  --bg:#f6f5fa; --card:#ffffff; --ink:#18161f; --dim:#6b6779; --line:#e6e3ee;
+  --accent:#6d3fd6; --accent-ink:#ffffff; --ok:#1f8a4c; --warn:#a66300; --bad:#c0362c; --off:#8a8798;
+  --chip:#f0edf7; --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0f0e13; --card:#18171f; --ink:#ece9f5; --dim:#9a96a8; --line:#2a2834;
+  --accent:#9b7bf0; --accent-ink:#120c22; --ok:#4cc27f; --warn:#e2a34a; --bad:#f07068; --off:#77738a; --chip:#23212d;
+}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+body{padding:calc(env(safe-area-inset-top) + 12px) 16px calc(env(safe-area-inset-bottom) + 96px)}
+main{max-width:640px;margin:0 auto}
+h1{font-size:22px;letter-spacing:.08em;margin:4px 0 2px}
+h1 small{font-size:13px;color:var(--dim);letter-spacing:0;font-weight:500;margin-left:6px}
+.sub{color:var(--dim);font-size:13px;margin:0 0 14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin:0 0 14px}
+.card h2{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin:0 0 10px}
+.note{font-size:13px;color:var(--dim);margin:6px 0 0}
+.banner{border-radius:12px;padding:10px 12px;font-size:13px;margin:0 0 14px;border:1px solid var(--line);background:var(--chip)}
+.banner.warn{border-color:color-mix(in srgb,var(--warn) 40%,transparent)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:13px}
+.kv dt{color:var(--dim)} .kv dd{margin:0;overflow-wrap:anywhere}
+.row{display:flex;align-items:flex-start;gap:12px;padding:10px 0;border-top:1px solid var(--line)}
+.row:first-of-type{border-top:0}
+.row .txt{flex:1;min-width:0}
+.row .t{font-weight:600}
+.row .h{font-size:13px;color:var(--dim)}
+.row .p{font:12px var(--mono);color:var(--dim);overflow-wrap:anywhere}
+.row.na .t,.row.dis .t{color:var(--dim)}
+.why{font-size:12.5px;color:var(--warn);margin-top:2px}
+.chip{display:inline-block;font-size:11px;font-weight:600;letter-spacing:.04em;padding:2px 7px;border-radius:99px;background:var(--chip);color:var(--dim);margin-left:6px;vertical-align:1px}
+.chip.ok{color:var(--ok)} .chip.bad{color:var(--bad)} .chip.warn{color:var(--warn)}
+.num{font:600 12px var(--mono);color:var(--dim);margin-right:6px}
+/* switch */
+.sw{position:relative;flex:none;width:46px;height:28px;margin-top:2px}
+.sw input{opacity:0;width:100%;height:100%;margin:0;position:absolute;inset:0;cursor:pointer;z-index:1}
+.sw span{position:absolute;inset:0;border-radius:99px;background:var(--line);transition:background .15s}
+.sw span::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 2px #0003;transition:transform .15s}
+.sw input:checked+span{background:var(--accent)}
+.sw input:checked+span::after{transform:translateX(18px)}
+.sw input:disabled{cursor:not-allowed}
+.sw input:disabled+span{opacity:.4}
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
+.seg button{text-align:left;padding:10px 12px;font-weight:600}
+.seg button small{display:block;font-weight:500;font-size:12px;color:var(--dim)}
+.seg button[aria-pressed=true]{border:1.5px solid var(--accent);background:color-mix(in srgb,var(--accent) 12%,var(--card))}
+.box{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:6px 0}
+.skip{font-size:12.5px;color:var(--dim);margin-top:2px}
+label.ack{display:flex;gap:10px;align-items:flex-start;font-size:14px;margin-top:10px}
+label.ack input{width:20px;height:20px;margin:1px 0 0;flex:none}
+.btns{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+button{font:inherit;font-weight:600;border-radius:11px;padding:11px 16px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+button.danger{color:var(--bad)}
+button:disabled{opacity:.45;cursor:not-allowed}
+.grow{flex:1}
+pre.out{font:12px/1.5 var(--mono);background:var(--chip);border-radius:10px;padding:10px;margin:0;max-height:52vh;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
+dialog{border:1px solid var(--line);border-radius:16px;background:var(--card);color:var(--ink);padding:16px;width:min(560px,calc(100vw - 32px));max-height:86vh}
+dialog::backdrop{background:#0008}
+dialog h3{margin:0 0 8px;font-size:17px}
+dialog ul{padding-left:18px;margin:6px 0;font-size:13.5px}
+dialog input[type=text]{font:inherit;width:100%;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);margin-top:8px}
+.list{font:12px var(--mono);color:var(--dim)}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+<main>
+  <h1>DEEPPURGE <small id="ver"></small></h1>
+  <p class="sub">Deep clean that keeps app logins · network &amp; kernel tuning</p>
+  <div id="banners"></div>
+
+  <section class="card" id="devCard">
+    <h2>Device</h2>
+    <dl class="kv" id="dev"></dl>
+  </section>
+
+  <section class="card">
+    <h2>Boot tuning</h2>
+    <div id="bootInfo" class="note" style="margin:0 0 6px"></div>
+    <div id="tune"></div>
+    <p class="note">Applied once at the start of boot and again 20 s after boot. Nothing runs in the background. A setting you turn off goes back to stock at the next reboot.</p>
+    <div class="btns"><button id="applyNow">Apply now</button></div>
+  </section>
+
+  <section class="card">
+    <h2>Clean</h2>
+    <div class="seg" role="group" aria-label="Kind of clean">
+      <button id="modeQuick" data-mode="quick">Quick clean<small>No reboot</small></button>
+      <button id="modeFull" data-mode="full">Full clean<small>Ends with a reboot</small></button>
+    </div>
+    <p class="note" id="modeNote" style="margin:0 0 8px"></p>
+    <div class="row box">
+      <div class="txt"><div class="t">All sections</div>
+        <div class="h">Runs every section of this clean. Turns the section toggles off.</div></div>
+      <label class="sw"><input type="checkbox" id="all"><span></span></label>
+    </div>
+    <div id="secs"></div>
+    <p class="note">The cleaner never runs on its own. It runs only when you press a button below.</p>
+    <div class="btns">
+      <button id="testBtn" class="grow">Test run</button>
+      <button id="runBtn" class="primary grow">Run</button>
+    </div>
+  </section>
+
+  <section class="card hidden" id="outCard">
+    <h2 id="outTitle">Output</h2>
+    <pre class="out" id="out"></pre>
+    <div class="btns"><button id="cancelBtn" class="danger hidden">Stop</button><button id="closeOut">Close</button></div>
+  </section>
+
+  <section class="card">
+    <h2>Revert</h2>
+    <p class="note" style="margin:0 0 4px">Puts section 1 settings back to stock and turns every tuning setting off. Cleaning can't be undone. Use this before uninstalling the module.</p>
+    <div class="btns"><button id="revertBtn" class="danger">Revert settings &amp; tuning</button></div>
+  </section>
+</main>
+
+<dialog id="dlg">
+  <h3 id="dlgTitle"></h3>
+  <div id="dlgBody"></div>
+  <div class="btns">
+    <button id="dlgCancel" class="grow">Cancel</button>
+    <button id="dlgOk" class="primary grow">OK</button>
+  </div>
+</dialog>
+
+<script>
+"use strict";
+const MOD = "/data/adb/modules/deeppurge";
+const CONF = "/data/adb/deeppurge";
+const OUT = CONF + "/run.out";
+const LOCK = "/dev/deeppurge.lock";
+
+const TUNE_LABEL = {
+  "/proc/sys/net/core/default_qdisc": ["Packet queue: fq_codel", "New network interfaces start on fq_codel. The active mobile link keeps the vendor queue."],
+  "/proc/sys/net/ipv4/tcp_congestion_control": ["TCP congestion control: BBR", "Better throughput and latency on lossy mobile links"],
+  "/proc/sys/net/ipv4/tcp_fastopen": ["TCP Fast Open", "Faster repeat connections (client and server)"],
+  "/proc/sys/net/ipv4/tcp_mtu_probing": ["MTU probing", "Finds a working packet size when the network blocks large ones"],
+  "/proc/sys/net/ipv4/tcp_slow_start_after_idle": ["No slow start after idle", "Connections keep their speed after a pause"],
+  "/proc/sys/net/ipv4/tcp_notsent_lowat": ["Less send buffering (16 KB)", "Lower latency for interactive traffic"],
+  "/proc/sys/kernel/printk": ["Quiet kernel console log", "Kernel messages stop going to the console"],
+  "/proc/sys/vm/vfs_cache_pressure": ["Keep file caches longer (50)", "Folder and file lookups stay cached"],
+  "/sys/kernel/tracing/tracing_on": ["Kernel tracing off", "Stops the always-on trace buffer"],
+};
+
+/* ── KernelSU bridge ─────────────────────────────────────────────── */
+const PREVIEW = typeof window.ksu === "undefined";
+let cbN = 0;
+function exec(cmd) {
+  if (PREVIEW) return Promise.resolve(mockExec(cmd));
+  return new Promise(resolve => {
+    const name = "dp_cb_" + Date.now() + "_" + (cbN++);
+    window[name] = (errno, stdout, stderr) => { delete window[name]; resolve({ errno, stdout, stderr }); };
+    try { ksu.exec(cmd, "{}", name); } catch (e) { delete window[name]; resolve({ errno: 1, stdout: "", stderr: String(e) }); }
+  });
+}
+function toast(msg) { if (!PREVIEW && ksu.toast) ksu.toast(msg); else console.log("toast:", msg); }
+const q = s => "'" + String(s).replace(/'/g, "'\\''") + "'";
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+/* ── State ───────────────────────────────────────────────────────── */
+let P = null;                                     // probe result
+const ui = { mode: "quick", all: false, sel: new Set() };
+let running = false;
+
+function parseProbe(txt) {
+  const r = { kv: {}, sec: [], tune: [], boots: [] };
+  for (const line of txt.split("\n")) {
+    if (!line) continue;
+    const f = line.split("|");
+    if (f[0] === "S") r.sec.push({ n: +f[1], mode: f[2], title: f[3], hint: f[4] || "", skip: f[5] || "" });
+    else if (f[0] === "T") r.tune.push({ path: f[1], value: f[2], exists: f[3] === "1", off: f[4] === "1", state: f[5] || "", detail: f[6] || "" });
+    else if (f[0] === "B") r.boots.push(f[1]);
+    else { const i = line.indexOf("="); if (i > 0) r.kv[line.slice(0, i)] = line.slice(i + 1); }
+  }
+  return r;
+}
+
+/* Why a section can't run in the current mode ("" = it can). */
+function sectionWhy(s) {
+  if (ui.mode === "quick" && s.mode === "reboot") return "Needs a reboot: full clean only.";
+  return "";
+}
+function tuneWhy(t) {
+  const name = t.path.split("/").pop();
+  if (!t.exists) return "Not supported: this kernel has no " + name + ".";
+  if (name === "tcp_congestion_control" && P.kv.avail_cc && !P.kv.avail_cc.split(/\s+/).includes(t.value))
+    return "Not supported: the kernel offers " + P.kv.avail_cc + ", not " + t.value + ".";
+  if (t.state === "FAIL") return "Not applied: the kernel rejected it at the last boot (it reads " + (t.detail.replace(/\s*\(wanted.*$/, "") || "?") + ").";
+  return "";
+}
+
+/* ── Render ──────────────────────────────────────────────────────── */
+function render() {
+  const k = P.kv;
+  $("ver").textContent = k.module || "";
+
+  const b = [];
+  if (PREVIEW) b.push(["", "Preview mode: not running inside KernelSU. Showing sample data."]);
+  if (!k.oplusrom) b.push(["warn", "DeepPurge is made for ColorOS. On this ROM some sections will find nothing to clean."]);
+  $("banners").innerHTML = b.map(([c, t]) => `<div class="banner ${c}">${esc(t)}</div>`).join("");
+
+  $("dev").innerHTML = [
+    ["Device", k.model || k.model2], ["Build", (k.build || "") + " · Android " + (k.android || "?")],
+    ["Kernel", (k.kernel || "").split("-").slice(0, 3).join("-")],
+  ].map(([a, v]) => `<dt>${esc(a)}</dt><dd>${esc(v || "?")}</dd>`).join("");
+
+  // boot tuning
+  $("bootInfo").textContent = P.boots.length ? "Last boot: " + P.boots.map(x => x.replace(/\s+\d{4}-\d\d-\d\d.*$/, "")).join(" · ") : "No boot record yet. It is written at the next boot.";
+  $("tune").innerHTML = P.tune.map((t, i) => {
+    const why = tuneWhy(t);
+    const [label, hint] = TUNE_LABEL[t.path] || [t.path.split("/").pop(), ""];
+    let chip;
+    if (why) chip = `<span class="chip warn">${t.exists ? "Not applied" : "Not supported"}</span>`;
+    else if (t.off) chip = `<span class="chip">Off</span>`;
+    else if (t.state === "ok") chip = `<span class="chip ok">Applied</span>`;
+    else if (t.state === "off") chip = `<span class="chip">On at next boot</span>`;
+    else chip = `<span class="chip">Not applied yet</span>`;
+    return `<div class="row ${why ? "na" : ""}"><div class="txt">
+      <div class="t">${esc(label)}${chip}</div>
+      ${hint ? `<div class="h">${esc(hint)}</div>` : ""}
+      <div class="p">${esc(t.path)} = ${esc(t.value)}</div>
+      ${why ? `<div class="why">${esc(why)}</div>` : ""}</div>
+      <label class="sw"><input type="checkbox" data-tune="${i}" ${!why && !t.off ? "checked" : ""} ${why ? "disabled" : ""}><span></span></label></div>`;
+  }).join("") || `<div class="note">No tuning file found in the module.</div>`;
+
+  // clean: mode, All, sections
+  const quick = ui.mode === "quick";
+  $("modeQuick").setAttribute("aria-pressed", quick);
+  $("modeFull").setAttribute("aria-pressed", !quick);
+  $("modeNote").textContent = quick
+    ? "Only what is safe while the phone runs. Caches that are rebuilt at boot are left for a full clean."
+    : "Everything, including caches rebuilt at boot. The phone reboots when the clean is done, and you'll be asked first.";
+  $("all").checked = ui.all;
+  $("secs").innerHTML = P.sec.map(s => {
+    const why = sectionWhy(s);
+    const dis = ui.all || !!why;
+    const on = !dis && ui.sel.has(s.n);
+    const chip = s.mode === "reboot" ? '<span class="chip warn">Reboot</span>' : "";
+    const skip = quick && s.mode === "mixed" && s.skip ? `<div class="skip">Quick clean leaves out: ${esc(s.skip)}</div>` : "";
+    return `<div class="row ${why ? "na" : dis ? "dis" : ""}"><div class="txt">
+      <div class="t"><span class="num">${String(s.n).padStart(2, "0")}</span>${esc(s.title)}${chip}</div>
+      <div class="h">${esc(s.hint)}</div>${skip}
+      ${why ? `<div class="why">${esc(why)}</div>` : ""}</div>
+      <label class="sw"><input type="checkbox" data-sec="${s.n}" ${on ? "checked" : ""} ${dis ? "disabled" : ""}><span></span></label></div>`;
+  }).join("");
+  $("runBtn").textContent = quick ? "Run quick clean" : "Run full clean & reboot";
+
+  updateButtons();
+}
+
+/* Sections that will run: "all", or "3,4,6" (only ones allowed in this mode). */
+function selection() {
+  if (ui.all) return "all";
+  return P.sec.filter(s => ui.sel.has(s.n) && !sectionWhy(s)).map(s => s.n).join(",");
+}
+function selectionText(sel) {
+  if (sel === "all") return ui.mode === "quick" ? "every section that works without a reboot" : "every section";
+  return "sections " + sel.replace(/,/g, ", ");
+}
+function updateButtons() {
+  const can = !!selection() && !running;
+  $("testBtn").disabled = !can;
+  $("runBtn").disabled = !can;
+  $("revertBtn").disabled = running;
+  $("applyNow").disabled = running;
+}
+
+async function saveUi() {
+  const body = `mode=${ui.mode}\nall=${ui.all ? 1 : 0}\nsections=${[...ui.sel].sort((a, b) => a - b).join(",")}\n`;
+  await exec(`mkdir -p ${CONF} && printf %s ${q(body)} > ${CONF}/webui.conf`);
+}
+async function saveTuneOff() {
+  const off = P.tune.filter(t => t.off).map(t => t.path).join("\n");
+  await exec(`mkdir -p ${CONF} && printf '%s\\n' ${q(off)} | sed '/^$/d' > ${CONF}/tuning.off`);
+}
+
+/* ── Dialog ──────────────────────────────────────────────────────── */
+// ack: text of a checkbox that must be ticked before OK is enabled
+function dialog(title, html, okText, { danger = false, ack = "" } = {}) {
+  return new Promise(resolve => {
+    const d = $("dlg");
+    $("dlgTitle").textContent = title;
+    $("dlgBody").innerHTML = html + (ack ? `<label class="ack"><input type="checkbox" id="ackBox"><span>${esc(ack)}</span></label>` : "");
+    const ok = $("dlgOk");
+    ok.textContent = okText; ok.className = danger ? "danger grow" : "primary grow";
+    ok.disabled = !!ack;
+    if (ack) $("ackBox").onchange = e => { ok.disabled = !e.target.checked; };
+    const done = v => { d.close(); ok.onclick = $("dlgCancel").onclick = d.oncancel = null; resolve(v); };
+    ok.onclick = () => done(true);
+    $("dlgCancel").onclick = () => done(false);
+    d.oncancel = e => { e.preventDefault(); done(false); };
+    d.showModal();
+  });
+}
+
+/* ── Running the engine ──────────────────────────────────────────── */
+let pollT = null;
+function showOut(title) {
+  $("outTitle").textContent = title;
+  $("outCard").classList.remove("hidden");
+  $("outCard").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+async function startEngine(args, title) {
+  running = true; updateButtons();
+  $("out").textContent = "Starting…";
+  showOut(title);
+  await exec(`mkdir -p ${CONF} && cd / && setsid sh ${MOD}/cleaner.sh ${args} > ${OUT} 2>&1 < /dev/null &`);
+  poll(Date.now());
+}
+function poll(t0) {
+  clearTimeout(pollT);
+  pollT = setTimeout(async () => {
+    const r = await exec(`cat ${OUT} 2>/dev/null; if [ -f ${LOCK} ] && kill -0 "$(cat ${LOCK})" 2>/dev/null; then echo "@@RUN=1"; else echo "@@RUN=0"; fi`);
+    const txt = r.stdout || "";
+    const live = /@@RUN=1\s*$/.test(txt);
+    const pre = $("out");
+    const atEnd = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 20;
+    pre.textContent = txt.replace(/@@RUN=\d\s*$/, "").replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "").replace(/\r/g, "") || "Starting…";
+    if (atEnd) pre.scrollTop = pre.scrollHeight;
+    $("cancelBtn").classList.toggle("hidden", !live);
+    if (live || Date.now() - t0 < 4000) { poll(t0); return; }   // give the engine a moment to take its lock
+    running = false; updateButtons();
+    await refresh();
+  }, 1000);
+}
+
+/* ── Actions ─────────────────────────────────────────────────────── */
+for (const id of ["modeQuick", "modeFull"]) {
+  $(id).onclick = async () => { ui.mode = $(id).dataset.mode; await saveUi(); render(); };
+}
+document.addEventListener("change", async e => {
+  const el = e.target;
+  if (el.id === "all") {
+    ui.all = el.checked;
+    if (ui.all) ui.sel.clear();            // All sections: the section toggles go off
+    await saveUi(); render(); return;
+  }
+  if (el.dataset.sec) {
+    const n = +el.dataset.sec;
+    el.checked ? ui.sel.add(n) : ui.sel.delete(n);
+    await saveUi(); updateButtons(); return;
+  }
+  if (el.dataset.tune) {
+    const t = P.tune[+el.dataset.tune];
+    t.off = !el.checked;
+    await saveTuneOff();
+    toast(t.off ? "Off from the next boot" : "On from the next boot. Press Apply now to apply it right away.");
+    render();
+  }
+});
+
+$("testBtn").onclick = () => {
+  startEngine(`--mode=${ui.mode} --sections=${selection()} --dry`, `Test run · ${ui.mode} clean · nothing is changed`);
+};
+$("runBtn").onclick = async () => {
+  const sel = selection();
+  if (ui.mode === "quick") {
+    const ok = await dialog("Quick clean", `<p>Runs ${esc(selectionText(sel))}. The phone does <b>not</b> reboot.</p>
+      <p class="note">Items that need a reboot are left out. Use a full clean for those.</p>`, "Run quick clean");
+    if (ok) startEngine(`--mode=quick --sections=${sel}`, "Quick clean · no reboot");
+    return;
+  }
+  const ok = await dialog("This clean ends with a reboot", `<p>Runs ${esc(selectionText(sel))}, then the phone <b>reboots by itself</b>.</p>
+    <ul>
+      <li>Save anything open first. Tip: turn on airplane mode before you start.</li>
+      <li>The first boot after a full clean takes a few minutes longer.</li>
+      <li>Before rebooting, every installed app is checked for its APK. If one is missing, the reboot is refused.</li>
+    </ul>`, "Clean & reboot", { danger: true, ack: "I understand the phone will reboot when the clean is done." });
+  if (ok) startEngine(`--mode=full --sections=${sel} --reboot-ok`, "Full clean · the phone reboots when done");
+};
+$("cancelBtn").onclick = async () => {
+  if (!await dialog("Stop the run?", "<p>Stops after the current step. Nothing is undone, and the phone does not reboot.</p>", "Stop", { danger: true })) return;
+  await exec(`kill -INT "$(cat ${LOCK})" 2>/dev/null`);
+};
+$("closeOut").onclick = () => { if (!running) $("outCard").classList.add("hidden"); };
+$("applyNow").onclick = async () => {
+  await exec(`PASS=now sh ${MOD}/tuning.sh`);
+  toast("Tuning applied");
+  await refresh();
+};
+$("revertBtn").onclick = async () => {
+  const ok = await dialog("Revert", "<p>Puts section 1 settings back to stock and turns every tuning setting off. Reboot afterwards to return the kernel to stock.</p>", "Revert", { danger: true });
+  if (ok) startEngine("--revert", "Revert");
+};
+
+async function refresh() {
+  const r = await exec(`sh ${MOD}/probe.sh 2>/dev/null`);
+  P = parseProbe(r.stdout || "");
+  render();
+}
+
+(async () => {
+  await refresh();
+  const k = P.kv;
+  ui.mode = k.ui_mode === "full" ? "full" : "quick";
+  ui.all = k.ui_all === "1";
+  ui.sel = ui.all ? new Set() : new Set((k.ui_sections || "").split(",").filter(Boolean).map(Number));
+  render();
+  if (k.running) { running = true; updateButtons(); showOut("Running"); poll(Date.now()); }
+})();
+
+/* ── Preview data (only used outside KernelSU) ───────────────────── */
+function mockExec(cmd) {
+  if (cmd.includes("probe.sh")) {
+    const secs = [
+      "1|live|System settings & telemetry|animations 0.85×, debug & telemetry toggles off|",
+      "2|mixed|System caches & temp files|package & overlay caches, temp, lost+found, OTA download, MTP data|package-manager & overlay caches (rebuilt at boot)",
+      "3|mixed|App, WebView & GPU caches|Android cache folders, browser/GPU & ad-SDK caches · logins kept|app code caches (in use by running apps)",
+      "4|live|Browser & in-app web data|site data in browsers & in-app web pages · cookies & logins kept|",
+      "5|live|Logs & crash reports|system, vendor, root, bug reports, crash reports & in-app logs|",
+      "6|mixed|Activity history|screen time, data usage, battery & power history, recents, notifications|history files (system services write them back until a reboot)",
+      "7|mixed|ColorOS & Google telemetry|ColorOS diagnostics, Android statsd, Google Clearcut, Firebase analytics|Clearcut & Firebase queues (open in running apps)",
+      "8|live|Uninstalled app leftovers|data of apps Android has no record of · double-checked, capped|",
+      "9|reboot|ART reset & dalvik wipe|profiles, dalvik & boot image · apps slower for a few days|all of it (dalvik and boot image are rebuilt at boot)",
+      "10|live|Storage GC & TRIM|smart F2FS garbage collection + TRIM|",
+    ];
+    return { errno: 0, stderr: "", stdout: [
+      "module=v10.1", "model=OnePlus 15", "build=CPH2747_17.0.0.100", "android=17", "kernel=6.12.69-android16-8-g1234",
+      "oplusrom=V17.0", "avail_cc=reno cubic bbr", "running=",
+      ...secs.map(x => "S|" + x),
+      "B|pass 1  boot+4s  1970-01-01 00:00:04", "B|pass 2  boot+48s  2026-11-18 10:02:11",
+      "T|/proc/sys/net/core/default_qdisc|fq_codel|1|0|ok|fq_codel", "T|/proc/sys/net/ipv4/tcp_congestion_control|bbr|1|0|ok|bbr",
+      "T|/proc/sys/net/ipv4/tcp_fastopen|3|1|1|off|", "T|/sys/kernel/tracing/tracing_on|0|0|0|missing|",
+    ].join("\n") };
+  }
+  if (cmd.includes("cat " + OUT)) return { errno: 0, stderr: "", stdout: "  Quick clean · 1 of 11 sections · no reboot\n  [01/01] System caches & temp files\n          – Package-manager & overlay caches · full clean only\n          ✓ Done · 3s · 412.0 MB\n@@RUN=0\n" };
+  return { errno: 0, stdout: "", stderr: "" };
+}
+</script>
+</body>
+</html>

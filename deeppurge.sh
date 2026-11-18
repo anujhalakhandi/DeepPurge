@@ -1,53 +1,58 @@
 #!/data/data/com.termux/files/usr/bin/bash
-#  DEEPPURGE 10.0 — deep clean for rooted OnePlus 15
+#  DEEPPURGE 10.1 — deep clean for rooted OnePlus 15
 #  ColorOS 17 · KernelSU · app logins preserved
 #
 #  Safety rules this script follows:
-#   • Never touches installed APKs (/data/app), shared storage (/sdcard,
-#     /data/media), ColorOS battery rules (/data/oplus/os), or any app's
-#     databases, shared_prefs, no_backup or sign-in data (cookies, logins).
+#   • Never installs, uninstalls or moves apps, and never touches APKs
+#     (/data/app), shared storage (/sdcard, /data/media), ColorOS battery
+#     rules (/data/oplus/os), or any app's databases, shared_prefs,
+#     no_backup or sign-in data (cookies, logins).
 #   • Clears caches, web site data, logs, telemetry, usage history,
 #     temp/OTA leftovers and compiled code — all rebuilt automatically.
 #   • Apps are closed only right before their web data is cleared — never
 #     the keyboard, launcher, VPN, accessibility apps, Termux, System UI,
 #     Phone or Play services.
 #   • Leftover app data is removed only when Android has no record of the
-#     package at all, double-checked per package, with a hard cap. Apps
-#     uninstalled with data kept are listed by name and size first.
-#   • Optional "Fresh reinstall": uninstalls Play Store apps and Play
-#     updates of system apps with their DATA KEPT, records them, and
-#     protects that data until they are reinstalled (deeppurge --restore).
-#   • Refuses to reboot if any installed app is missing its APK.
+#     package at all, double-checked per package, with a hard cap.
 #
-#  Always reboots at the end, so boot-rebuilt caches (code, dalvik,
-#  overlay) are cleared every run.
+#  Two kinds of clean:
+#   • Quick clean — only what is safe while Android is running. No reboot.
+#   • Full clean  — everything, including caches rebuilt at boot (package,
+#     overlay, code, dalvik). Always ends with a reboot, and asks first.
+#     Refuses to reboot if any installed app is missing its APK.
 #
-#  Usage: deeppurge            interactive: optional test run, then full run or pick sections
-#         deeppurge -y         full run, no questions (never does Fresh reinstall)
-#         deeppurge --restore  reinstall apps removed by Fresh reinstall, one by one
-#         deeppurge --revert   undo settings & boot tweaks (cleaning can't be undone)
+#  Usage: deeppurge                interactive: choose quick or full, optional test run
+#         deeppurge --revert       undo settings & boot tweaks (cleaning can't be undone)
+#  Non-interactive:
+#         deeppurge --mode=quick [--sections=LIST|all]              quick clean, no reboot
+#         deeppurge --mode=full  [--sections=LIST|all] --reboot-ok  full clean, then reboot
+#         deeppurge -y             same as --mode=full --sections=all --reboot-ok
+#         … --dry                  test run of the same selection: measure only, no reboot
 
 # The whole script is one { … } block: bash reads it completely before
 # running, so replacing this file during a run cannot affect that run.
 {
-VERSION="10.0"
+VERSION="10.1"
 
 # ── Configuration ────────────────────────────────────────────────────
 GC_MAX_SECONDS=300     # F2FS urgent GC stops when done, stalled, or after this long (0 = skip)
 BOOT_DELAY=20          # network & kernel tuning: applied at boot start, then again this many seconds after boot
 LEFTOVER_CAP=15        # if more leftover folders than this are found, something is off: skip them all
-KEPT_AUTO_MAX=10       # with -y, kept-data apps are only removed if there are this many or fewer
-# Never uninstalled by Fresh reinstall (in addition to anything not installed by Play Store,
-# Play Store / Play services / WebView / Chrome, and a lockdown VPN):
-KEEP_APPS="com.termux com.termux.api com.termux.boot com.termux.widget com.resukisu.resukisu app.morphe.manager"
+# Never closed by section 5 (web data), in addition to the keyboard, launcher, VPN and accessibility apps
+PROTECT_APPS="com.termux com.termux.api com.termux.boot com.termux.widget com.resukisu.resukisu app.morphe.manager"
 
-ASSUME_YES=0; DO_REVERT=0; DO_RESTORE=0
+DO_REVERT=0; MODE=""; SEL=""; DRYRUN=0; REBOOT_OK=0; NONINT=0
 for a in "$@"; do
   case "$a" in
-    -y|--yes)    ASSUME_YES=1 ;;
-    --revert)    DO_REVERT=1 ;;
-    --restore)   DO_RESTORE=1 ;;
-    -h|--help)   printf 'Usage: deeppurge [-y|--yes] [--restore] [--revert]\n'; exit 0 ;;
+    -y|--yes)     MODE=full; SEL=all; REBOOT_OK=1; NONINT=1 ;;
+    --revert)     DO_REVERT=1 ;;
+    --mode=quick|--quick) MODE=quick; NONINT=1 ;;
+    --mode=full|--full)   MODE=full; NONINT=1 ;;
+    --sections=*) SEL="${a#*=}"; NONINT=1 ;;
+    --dry)        DRYRUN=1; NONINT=1 ;;
+    --reboot-ok)  REBOOT_OK=1 ;;
+    -h|--help)    printf 'Usage: deeppurge [--revert] | [--mode=quick|full] [--sections=LIST|all] [--dry] [--reboot-ok] | -y\n'; exit 0 ;;
+    *)            printf 'Unknown option: %s (see --help)\n' "$a"; exit 2 ;;
   esac
 done
 
@@ -63,7 +68,6 @@ TMPD="/dev/deeppurge.$$"
 BOOT_SCRIPT=/data/adb/service.d/99_deeppurge_tuning.sh
 EARLY_SCRIPT=/data/adb/post-fs-data.d/99_deeppurge_tuning.sh   # same tuning, at the very start of boot
 TUNE_STATUS=/data/adb/deeppurge_tuning.status                   # per-boot record: every value, both passes
-PENDING="$LOG_DIR/restore_pending.list"   # apps removed by Fresh reinstall, data kept
 USERS=$(ls /data/user 2>/dev/null | tr '\n' ' ')
 mkdir -p "$LOG_DIR" "$TMPD"
 LOCK=/dev/deeppurge.lock
@@ -106,7 +110,7 @@ printf() {
   builtin printf "$fmt" "${out[@]}"
 }
 
-W=$(stty size </dev/tty 2>/dev/null | awk '{print $2}')
+W=$( { stty size </dev/tty; } 2>/dev/null | awk '{print $2}')
 [ -z "$W" ] && W=60; [ "$W" -gt 72 ] && W=72; [ "$W" -lt 44 ] && W=44
 
 log()    { printf '%s\n' "$*" >> "$LOG"; }
@@ -116,6 +120,8 @@ kv()     { local v="$2" max=$((W - 13)); log "$1: $2"
            printf '  %s%-10s%s %s\n' "$D" "$1" "$R" "$v"; }
 item()   { printf '          %s›%s %s\n' "$D" "$R" "$1"; log "    - $1"; }
 warn()   { printf '          %s!%s %s\n' "$YL" "$R" "$1"; log "    ! $1"; }
+# bitem TEXT — an item that only a full clean does; a quick clean says it was left out
+bitem()  { if [ "$QUICK" = 1 ]; then printf '          %s– %s · full clean only%s\n' "$D" "$1" "$R"; log "    – $1 (full clean only)"; else item "$1"; fi; }
 now_kb()  { df -kP /data 2>/dev/null | awk 'NR==2 {v=$3} END {print v+0}'; }   # never empty
 free_kb() { df -kP /data 2>/dev/null | awk 'NR==2 {v=$4} END {print v+0}'; }
 fmt_kb() { awk -v k="$1" 'BEGIN { if (k <= 0) print "-"; else if (k >= 1048576) printf "%.2f GB\n", k/1048576; else if (k >= 1024) printf "%.1f MB\n", k/1024; else printf "%d KB\n", k }'; }
@@ -150,6 +156,10 @@ finish() {
 }
 spin() {
   local label="$1"; shift
+  if [ ! -t 1 ]; then   # no terminal (WebUI): one line, no animation
+    printf '          … %s\n' "$label"
+    "$@" >> "$LOG" 2>&1; return
+  fi
   "$@" >> "$LOG" 2>&1 &
   SPIN_PID=$!
   local i=0 t0=$SECONDS fr=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
@@ -165,7 +175,7 @@ spin() {
 gc_off() { local g; for g in /sys/fs/f2fs/*/gc_urgent; do [ -w "$g" ] && echo 0 > "$g"; done 2>/dev/null; }
 cleanup() {
   gc_off
-  printf '\033[?25h'
+  [ -t 1 ] && printf '\033[?25h'
   rm -rf "$TMPD"; rm -f "$LOCK"
   local id; id=$(stat -c %u "$T_HOME" 2>/dev/null)
   [ -n "$id" ] && chown -R "$id:$id" "$LOG_DIR" 2>/dev/null
@@ -195,6 +205,11 @@ zap() {
 # settle [seconds] — flush writes and give system services time to catch up
 settle() { [ "$DRY" = 1 ] && return 0; sync; sleep "${1:-2}"; }
 
+# Quick clean (QUICK=1) leaves out everything that is only rebuilt or re-read
+# at boot, or that running apps and services still hold open.
+QUICK=0
+boot_only() { [ "$QUICK" = 1 ] && return 0; "$@"; }
+
 # apk_check — every installed app must still have its APK file.
 # Writes broken package names to $TMPD/apk_broken; returns 1 if any.
 apk_check() {
@@ -205,18 +220,10 @@ apk_check() {
   [ ! -s "$TMPD/apk_broken" ]
 }
 
-# Drop apps from the Fresh-reinstall list once they are installed again
-prune_pending() {
-  [ -s "$PENDING" ] || return 0
-  pm list packages 2>/dev/null | cut -d: -f2 | tr -d '\r' | sort -u > "$TMPD/installed_now"
-  sort -u "$PENDING" | comm -23 - "$TMPD/installed_now" > "$TMPD/pending_new"
-  cat "$TMPD/pending_new" > "$PENDING"
-}
-
 # ── Workers ──────────────────────────────────────────────────────────
 purge_system_caches() {
-  empty_dir /data/system/package_cache          # parsed-APK cache, rebuilt by the package manager at boot
-  empty_dir /data/resource-cache                # overlay (theme) idmaps, regenerated at boot
+  boot_only empty_dir /data/system/package_cache   # parsed-APK cache, rebuilt by the package manager at boot
+  boot_only empty_dir /data/resource-cache         # overlay (theme) idmaps, regenerated at boot
   empty_dir /data/local/tmp                     # temp files
   empty_dir /data/lost+found                    # fragments from filesystem repairs
   empty_dir /data/ota_package                   # downloaded OTA update (re-downloads if pending)
@@ -232,7 +239,8 @@ purge_system_caches() {
 purge_caches() {
   local base names
   : > "$TMPD/cachedirs"
-  names=( -name cache -o -name code_cache )   # code_cache is rebuilt after the reboot
+  names=( -name cache )
+  [ "$QUICK" = 1 ] || names+=( -o -name code_cache )   # code caches are in use by running apps; rebuilt after the reboot
   local d
   for base in /data/user/*/ /data/user_de/*/; do
     find "$base" -mindepth 2 -maxdepth 2 -type d \( "${names[@]}" \) -print 2>/dev/null
@@ -285,6 +293,18 @@ purge_logs() {
 # Note: wiping usage stats means apps you then don't open for months may be
 # treated as "unused" by Android and have their permissions auto-revoked.
 wipe_history() {
+  boot_only wipe_history_files
+  # in-memory counters: battery usage screen, process stats, binder/looper stats
+  if [ "$DRY" != 1 ]; then
+    dumpsys batterystats --reset
+    dumpsys procstats --clear
+    cmd binder_calls_stats --reset
+    cmd looper_stats reset
+  fi
+}
+# History files are kept in memory by system services and written back, so
+# deleting them only sticks across a reboot (full clean).
+wipe_history_files() {
   local u d
   for u in $USERS; do
     for d in daily weekly monthly yearly; do
@@ -302,13 +322,6 @@ wipe_history() {
   empty_dir /data/system/battery-history
   empty_dir /data/system/graphicsstats
   empty_dir /data/oplus/psw/powermonitor        # ColorOS power history (battery rules in /data/oplus/os are never touched)
-  # in-memory counters: battery usage screen, process stats, binder/looper stats
-  if [ "$DRY" != 1 ]; then
-    dumpsys batterystats --reset
-    dumpsys procstats --clear
-    cmd binder_calls_stats --reset
-    cmd looper_stats reset
-  fi
 }
 
 purge_telemetry() {
@@ -320,13 +333,15 @@ purge_telemetry() {
       if [ "$DRY" = 1 ]; then dry_add "/data/user/$u/$t" "/data/user_de/$u/$t"
       else pm clear --user "$u" "$t" >/dev/null 2>&1; fi
     done
-    # Google Clearcut logging queue
-    zap "/data/user/$u/com.google.android.gms/databases/"*clearcut* "/data/user/$u/com.google.android.gms/files/clearcut"
+    # Google Clearcut logging queue (open in Play services while it runs: full clean only)
+    boot_only zap "/data/user/$u/com.google.android.gms/databases/"*clearcut* "/data/user/$u/com.google.android.gms/files/clearcut"
   done
   # statsd: metrics queued for upload (recreated by statsd)
   empty_dir /data/misc/stats-data
   empty_dir /data/misc/stats-active-metric
-  # Firebase Analytics / transport queues (analytics only, recreated on demand)
+  # Firebase Analytics / transport queues (analytics only, recreated on demand;
+  # open in running apps, so full clean only)
+  [ "$QUICK" = 1 ] && return 0
   local f
   find /data/user/*/ -mindepth 3 -maxdepth 3 -type f -path '*/databases/*' \( \
     -name 'google_app_measurement*' -o -name 'com.google.android.datatransport.events*' \
@@ -335,6 +350,7 @@ purge_telemetry() {
 
 # Removes data folders only for packages Android has NO record of —
 # not installed, not uninstalled-with-data-kept, not archived.
+# Never runs pm uninstall: apps uninstalled with their data kept are left alone.
 # Every candidate is re-checked individually; too many candidates = abort.
 sweep_leftovers() {
   local u L d p KNOWN="$TMPD/known" CAND="$TMPD/cand" OUT="$TMPD/leftovers"
@@ -397,7 +413,7 @@ web_purge() {
   vpn=$(settings get secure always_on_vpn_app 2>/dev/null)
   launcher=$(cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME 2>/dev/null | tail -n 1 | cut -d/ -f1)
   a11y=$(settings get secure enabled_accessibility_services 2>/dev/null | tr ':' '\n' | cut -d/ -f1 | tr '\n' ' ')
-  protect=" $KEEP_APPS $ime $vpn $launcher $a11y com.android.systemui com.android.phone com.google.android.gms com.google.android.gsf "
+  protect=" $PROTECT_APPS $ime $vpn $launcher $a11y com.android.systemui com.android.phone com.google.android.gms com.google.android.gsf "
   : > "$TMPD/web_skip"
   while read -r pkg _; do
     case "$protect" in *" $pkg "*) echo "$pkg" >> "$TMPD/web_skip"; continue ;; esac
@@ -411,96 +427,9 @@ web_purge() {
   done < "$TMPD/web_dirs"
 }
 
-# Apps uninstalled with their data kept (third-party only; archived apps
-# and system apps are excluded). Removing them deletes the leftover data.
-kept_scan() {
-  local p kb
-  : > "$TMPD/kept"
-  comm -23 <(pm list packages -u -3 2>/dev/null | cut -d: -f2 | tr -d '\r' | sort -u) \
-           <(pm list packages -3 2>/dev/null | cut -d: -f2 | tr -d '\r' | sort -u) |
-  while IFS= read -r p; do
-    [ -n "$p" ] || continue
-    # apps removed by Fresh reinstall are waiting to be reinstalled — never touch their data
-    [ -s "$PENDING" ] && grep -qxF "$p" "$PENDING" && continue
-    dumpsys package "$p" 2>/dev/null | grep 'archiveState=' | grep -vq 'archiveState=null' && continue
-    kb=$(du -sk /data/user/*/"$p" /data/user_de/*/"$p" 2>/dev/null | awk '{s+=$1} END {print s+0}')
-    printf '%s %s\n' "$p" "$kb"
-  done | sort -k2 -nr > "$TMPD/kept"
-}
-kept_purge() {
-  local p r
-  : > "$TMPD/kept_done"
-  while read -r p _; do
-    if [ "$DRY" = 1 ]; then dry_add /data/user/*/"$p" /data/user_de/*/"$p"; echo "$p Success" >> "$TMPD/kept_done"; continue; fi
-    r=$(pm uninstall "$p" 2>&1 | tr -d '\r')
-    echo "$p $r" >> "$TMPD/kept_done"
-    sleep 0.5
-  done < "$TMPD/kept"
-}
-
 # Chromium storage folder names that hold site data (not cookies/logins)
 WEB_STORE_NAMES=( -name "Service Worker" -o -name IndexedDB -o -name "Local Storage" \
                   -o -name "Session Storage" -o -name databases -o -name "File System" -o -name WebStorage )
-
-# Fresh reinstall: only what Play Store can give back.
-#  • third-party apps installed by Play Store
-#  • Play-installed updates of system apps (reverted to the factory version)
-# Never: KEEP_APPS, non-Play apps, Play Store / Play services (needed to
-# reinstall), WebView / Chrome (must stay in sync), a VPN in lockdown mode
-# (could leave no internet), and system components without a home icon.
-fresh_scan() {
-  local ime launcher vpn lockvpn a11y dialer sms protect path pkg inst kb
-  ime=$(settings get secure default_input_method 2>/dev/null | cut -d/ -f1)
-  launcher=$(cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME 2>/dev/null | tail -n 1 | cut -d/ -f1)
-  vpn=$(settings get secure always_on_vpn_app 2>/dev/null)
-  lockvpn=""; [ "$(settings get secure always_on_vpn_lockdown 2>/dev/null)" = 1 ] && lockvpn="$vpn"
-  a11y=$(settings get secure enabled_accessibility_services 2>/dev/null | tr ':' '\n' | cut -d/ -f1 | tr '\n' ' ')
-  dialer=$(cmd role get-role-holders --user 0 android.app.role.DIALER 2>/dev/null | tr -d '\r')
-  sms=$(cmd role get-role-holders --user 0 android.app.role.SMS 2>/dev/null | tr -d '\r')
-  # system apps are only reverted if they have a home-screen icon (skips Mainline/system components)
-  cmd package query-activities --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER 2>/dev/null |
-    tr -d '\r' | grep -oE '[A-Za-z0-9_.]+/[A-Za-z0-9_.$]+' | cut -d/ -f1 | sort -u > "$TMPD/launchable"
-  protect=" $KEEP_APPS $lockvpn com.android.vending com.google.android.gms com.google.android.gsf com.google.android.webview com.android.chrome com.google.android.trichromelibrary "
-  : > "$TMPD/fresh_user"; : > "$TMPD/fresh_sys"
-  for kind in 3 s; do
-    pm list packages "-$kind" -f -i 2>/dev/null | tr -d '\r' |
-      sed -nE 's/^package:(.*)=([^= ]+)[[:space:]]+installer=(.*)$/\1 \2 \3/p' |
-    while read -r path pkg inst; do
-      [ "$inst" = com.android.vending ] || continue
-      case "$path" in /data/app/*) ;; *) continue ;; esac
-      case "$protect" in *" $pkg "*) continue ;; esac
-      case "$pkg" in com.google.android.trichromelibrary*) continue ;; esac
-      [ "$kind" = s ] && ! grep -qxF "$pkg" "$TMPD/launchable" && continue
-      kb=$(du -sk "${path%/*}" 2>/dev/null | cut -f1)
-      if [ "$kind" = 3 ]; then echo "$pkg ${kb:-0}" >> "$TMPD/fresh_user"; else echo "$pkg ${kb:-0}" >> "$TMPD/fresh_sys"; fi
-    done
-  done
-  sort -k2 -nr "$TMPD/fresh_user" -o "$TMPD/fresh_user"
-  sort -k2 -nr "$TMPD/fresh_sys" -o "$TMPD/fresh_sys"
-  # which of your default apps are in the list — they'll need re-selecting after reinstall
-  : > "$TMPD/fresh_defaults"
-  cut -d' ' -f1 "$TMPD/fresh_user" "$TMPD/fresh_sys" > "$TMPD/fresh_all"
-  in_fresh() { [ -n "$1" ] && grep -qxF "$1" "$TMPD/fresh_all"; }
-  in_fresh "$ime"      && echo "keyboard ($ime)"      >> "$TMPD/fresh_defaults"
-  in_fresh "$launcher" && echo "home screen ($launcher)" >> "$TMPD/fresh_defaults"
-  in_fresh "$dialer"   && echo "phone app ($dialer)"  >> "$TMPD/fresh_defaults"
-  in_fresh "$sms"      && echo "SMS app ($sms)"       >> "$TMPD/fresh_defaults"
-  in_fresh "$vpn"      && echo "always-on VPN ($vpn)" >> "$TMPD/fresh_defaults"
-  for p in $a11y; do in_fresh "$p" && echo "accessibility service ($p)" >> "$TMPD/fresh_defaults"; done
-  [ -n "$lockvpn" ] && echo "$lockvpn" > "$TMPD/fresh_lockvpn"
-  return 0
-}
-fresh_purge() {
-  local p r
-  : > "$TMPD/fresh_done"
-  cat "$TMPD/fresh_user" "$TMPD/fresh_sys" | while read -r p _; do
-    # record first, so the data is protected even if the run is interrupted
-    grep -qxF "$p" "$PENDING" 2>/dev/null || echo "$p" >> "$PENDING"
-    r=$(pm uninstall -k "$p" 2>&1 | tr -d '\r')
-    echo "$p $r" >> "$TMPD/fresh_done"
-    sleep 0.5
-  done
-}
 
 # Reset one package per request — a single all-apps request is too large
 # for the binder call and fails with "Failed transaction" on Android 17.
@@ -568,7 +497,6 @@ SEC_TITLE=(
   "Activity history"
   "ColorOS & Google telemetry"
   "Uninstalled app leftovers"
-  "Fresh reinstall from Play"
   "ART reset & dalvik wipe"
   "Storage GC & TRIM"
 )
@@ -581,10 +509,25 @@ SEC_HINT=(
   "system, vendor, root, bug reports, crash reports & in-app logs"
   "screen time, data usage, battery & power history, recents, notifications"
   "ColorOS diagnostics, Android statsd, Google Clearcut, Firebase analytics"
-  "orphaned data + apps uninstalled with data kept (listed first)"
-  "uninstall all Play Store apps (data kept), reinstall after reboot"
+  "orphaned data of apps Android has no record of · double-checked, capped"
   "profiles, dalvik & boot image · apps slower for a few days"
   "smart F2FS garbage collection + TRIM"
+)
+# live = all of it is safe without a reboot · mixed = part of it needs a full clean · reboot = full clean only
+SEC_MODE=( live live mixed mixed live live mixed mixed live reboot live )
+# what a quick clean leaves out, per section
+SEC_QUICK_SKIP=(
+  ""
+  ""
+  "package-manager & overlay caches (rebuilt at boot)"
+  "app code caches (in use by running apps)"
+  ""
+  ""
+  "history files (system services write them back until a reboot)"
+  "Clearcut & Firebase queues (open in running apps)"
+  ""
+  "all of it (dalvik and boot image are rebuilt at boot)"
+  ""
 )
 
 sec_1() {
@@ -693,7 +636,7 @@ sec_2() {
 
 sec_3() {
   spin "Clearing system caches" purge_system_caches
-  item "Package-manager & overlay caches cleared (rebuilt at boot)"
+  bitem "Package-manager & overlay caches cleared (rebuilt at boot)"
   item "Temp files, lost+found & downloaded OTA update removed"
   item "ColorOS theme-unpacking leftovers removed (icons kept)"
   item "MTP host data reset"
@@ -703,7 +646,7 @@ sec_3() {
 sec_4() {
   spin "Scanning app data" purge_caches
   item "$(cnt "$TMPD/cachedirs") cache folders · $(cnt "$TMPD/x_ads") ad-SDK folders emptied"
-  item "Includes app code caches (rebuilt after reboot)"
+  bitem "App code caches cleared (rebuilt after reboot)"
   item "Termux package downloads & tool caches cleared"
   finish
 }
@@ -731,10 +674,10 @@ sec_6() {
 
 sec_7() {
   spin "Clearing history" wipe_history
-  item "Data usage, battery usage & permission-usage history"
-  item "Process, binder & looper stats reset"
-  item "Recent apps & notification history"
-  item "Screen-time stats & ColorOS power history"
+  item "Battery, process, binder & looper stats reset"
+  bitem "Data usage, battery & permission-usage history files"
+  bitem "Recent apps & notification history"
+  bitem "Screen-time stats & ColorOS power history"
   finish
 }
 
@@ -742,7 +685,7 @@ sec_8() {
   spin "Resetting telemetry stores" purge_telemetry
   item "ColorOS DCS, statistics, log & crash collectors reset"
   item "Android statsd metrics queue cleared"
-  item "Google Clearcut queue · Firebase Analytics queues"
+  bitem "Google Clearcut queue · Firebase Analytics queues"
   finish
 }
 
@@ -755,56 +698,7 @@ sec_9() {
   else
     item "No orphaned folders found"
   fi
-  spin "Finding apps uninstalled with data kept" kept_scan
-  local k tot p kb ok
-  k=$(cnt "$TMPD/kept")
-  if [ "$k" -eq 0 ]; then
-    item "No uninstalled apps with kept data"
-    finish "$n removed"; return
-  fi
-  tot=$(awk '{s+=$2} END {print s+0}' "$TMPD/kept")
-  printf '\n          %sUninstalled apps still holding data:%s\n' "$B" "$R"
-  while read -r p kb; do item "$(printf '%-34s %s' "$p" "$(fmt_kb "$kb")")"; done < "$TMPD/kept"
-  local def=Y; [ "$k" -gt "$KEPT_AUTO_MAX" ] && def=N
-  if [ "$DRY" = 1 ]; then
-    spin "Measuring kept data" kept_purge
-    finish "$n orphaned · $k uninstalled apps' data"; return
-  fi
-  if [ "$ASSUME_YES" -eq 1 ] && [ "$k" -gt "$KEPT_AUTO_MAX" ]; then
-    warn "More than $KEPT_AUTO_MAX apps — not removed automatically. Run without -y to review."
-    finish "$n removed · kept data left alone"; return
-  fi
-  if [ "$ASSUME_YES" -eq 1 ] || ask "Delete the data of these $k uninstalled apps?" "$def" "frees $(fmt_kb "$tot") · reinstalling them later starts fresh"; then
-    spin "Removing kept data" kept_purge
-    ok=$(grep -c ' Success' "$TMPD/kept_done")
-    item "$ok of $k apps' data removed"
-    grep -v ' Success' "$TMPD/kept_done" | while read -r l; do warn "$l"; done
-    finish "$((n + ok)) removed"
-  else
-    finish "$n removed · kept data left alone"
-  fi
-}
-
-sec_10() {
-  [ "$DRY" = 1 ] && spin "Finding apps Play Store can reinstall" fresh_scan
-  local nu ns tu ts p kb ok
-  nu=$(cnt "$TMPD/fresh_user"); ns=$(cnt "$TMPD/fresh_sys")
-  if [ $((nu + ns)) -eq 0 ]; then item "Nothing to reinstall"; finish; return; fi
-  tu=$(awk '{s+=$2} END {print s+0}' "$TMPD/fresh_user"); ts=$(awk '{s+=$2} END {print s+0}' "$TMPD/fresh_sys")
-  if [ "$DRY" = 1 ]; then
-    item "$nu Play Store apps + $ns system-app updates could be reinstalled fresh"
-    item "frees $(fmt_kb $((tu + ts))) until you reinstall them (data kept)"
-    FRESH_EST=$((tu + ts))
-    finish "Not counted in the total (temporary)"; return
-  fi
-  if [ "$FRESH_OK" -ne 1 ]; then item "Not confirmed at the start — skipped"; finish "Skipped"; return; fi
-  spin "Uninstalling (data kept)" fresh_purge
-  settle 5
-  ok=$(grep -c ' Success' "$TMPD/fresh_done")
-  item "$ok of $((nu + ns)) done · list saved to ~/.deeppurge/restore_pending.list"
-  grep -v ' Success' "$TMPD/fresh_done" | head -n 5 | while read -r l; do warn "$l"; done
-  FRESH_DONE=1
-  finish "$ok uninstalled, data kept"
+  finish "$n removed"
 }
 
 art_estimate() {
@@ -812,7 +706,7 @@ art_estimate() {
           /data/misc/apexdata/com.android.art/dalvik-cache
 }
 
-sec_11() {
+sec_10() {
   if [ "$DRY" = 1 ]; then
     spin "Measuring compiled code & profiles" art_estimate
     item "Compiled app code, profiles, dalvik cache & boot image (rebuilt)"
@@ -827,7 +721,7 @@ sec_11() {
   finish
 }
 
-sec_12() {
+sec_11() {
   if [ "$DRY" = 1 ]; then item "Flash maintenance only — no space change"; finish "Would run"; return; fi
   settle 3
   spin "Garbage-collecting & trimming flash" storage_maint
@@ -843,7 +737,7 @@ sec_12() {
 
 # ── Header ───────────────────────────────────────────────────────────
 log "DEEPPURGE $VERSION — $(date)"
-clear
+[ -t 1 ] && clear
 printf '\n  %s%sDEEPPURGE%s  %sv%s%s\n' "$B" "$CY" "$R" "$D" "$VERSION" "$R"
 printf '  %sDeep system clean · app logins preserved%s\n' "$D" "$R"
 rule
@@ -884,79 +778,12 @@ if [ "$DO_REVERT" -eq 1 ]; then
   printf '\n'; exit 0
 fi
 
-if [ "$DO_RESTORE" -eq 1 ]; then
-  prune_pending
-  N=$(cnt "$PENDING")
-  printf '\n  %sReinstall apps removed by Fresh reinstall%s\n' "$B" "$R"
-  if [ "$N" -eq 0 ]; then item "Nothing waiting — everything is installed ✓"; printf '\n'; exit 0; fi
-  item "$N apps waiting. Each opens in Play Store: tap Install, then come back."
-  i=0
-  while read -r p <&3; do
-    i=$((i + 1))
-    printf '\n  %s[%d/%d]%s %s\n' "$CY" "$i" "$N" "$R" "$p"
-    am start -a android.intent.action.VIEW -d "market://details?id=$p" -p com.android.vending >/dev/null 2>&1
-    printf '  %sEnter = next · s = skip · q = quit%s ' "$D" "$R"; read -r a </dev/tty
-    [ "$a" = q ] && break
-  done 3< "$PENDING"
-  prune_pending
-  printf '\n  %s%d apps still waiting.%s Run deeppurge --restore again any time.\n\n' "$B" "$(cnt "$PENDING")" "$R"
-  exit 0
-fi
-
 if [ -n "$BAT" ] && [ "$BAT" -lt 20 ] && [ "${PLUG:-0}" -eq 0 ]; then
   printf '\n  %s✗ Battery at %s%%. Charge to 20%% or plug in first.%s\n\n' "$RD" "$BAT" "$R"; exit 1
 fi
 
 # Older versions changed flag sync; undo that silently on every run
 device_config set_sync_disabled_for_tests none >/dev/null 2>&1
-
-prune_pending
-FRESH_DONE=0; FRESH_EST=0; FRESH_OK=0
-
-# Shown once, before anything runs. Lists the apps and every consequence.
-# Returns 0 only if the user types YES.
-fresh_prompt() {
-  local nu ns tu ts p kb confirm
-  printf '\n'; rule
-  printf '  %sFRESH REINSTALL OF YOUR APPS%s\n' "$B" "$R"
-  rule
-  spin "Finding apps Play Store can reinstall" fresh_scan
-  nu=$(cnt "$TMPD/fresh_user"); ns=$(cnt "$TMPD/fresh_sys")
-  if [ $((nu + ns)) -eq 0 ]; then item "Nothing Play Store can reinstall — skipping"; return 1; fi
-  tu=$(awk '{s+=$2} END {print s+0}' "$TMPD/fresh_user"); ts=$(awk '{s+=$2} END {print s+0}' "$TMPD/fresh_sys")
-  printf '\n          %sThese apps would be uninstalled:%s\n' "$B" "$R"
-  cat "$TMPD/fresh_user" "$TMPD/fresh_sys" | sort -k2 -nr | head -n 8 | while read -r p kb; do
-    item "$(printf '%-34s %s' "$p" "$(fmt_kb "$kb")")"; done
-  [ $((nu + ns)) -gt 8 ] && item "…and $((nu + ns - 8)) more (full list in the log)"
-  { echo "FRESH CANDIDATES:"; cat "$TMPD/fresh_user" "$TMPD/fresh_sys"; } >> "$LOG"
-
-  printf '\n          %sWhat happens if you say YES%s\n' "$B" "$R"
-  [ "$nu" -gt 0 ] && item "$nu Play Store apps are uninstalled ($(fmt_kb "$tu"))"
-  [ "$ns" -gt 0 ] && item "$ns system apps go back to their factory version ($(fmt_kb "$ts"))"
-  item "Their data, logins and settings STAY on the phone"
-  item "They vanish from your home screen — icons, folders and widgets"
-  item "  for them are removed and must be placed again"
-  item "After the reboot you reinstall them from Play Store (internet"
-  item "  needed, about $(fmt_kb "$tu") to download); each comes back with its data"
-  item "Some may ask for permissions or notification settings again"
-  item "Banking / UPI apps may ask you to verify your device again"
-  item "App clones (App Cloner / Parallel apps) must be re-created"
-  if [ -s "$TMPD/fresh_defaults" ]; then
-    printf '\n          %sDefaults to set again after reinstalling:%s\n' "$B" "$R"
-    while read -r l; do item "$l"; done < "$TMPD/fresh_defaults"
-    item "(until then Android uses the built-in app)"
-  fi
-  printf '\n          %sNot touched:%s Termux, ReSukiSU, Morphe, apps not from Play Store,\n' "$B" "$R"
-  printf '          Play Store, Play services, WebView, Chrome, hidden system components'
-  [ -s "$TMPD/fresh_lockvpn" ] && printf ', your lockdown VPN'
-  printf '\n'
-  printf '\n  %sType YES to include this in the run (Enter or anything else skips it):%s ' "$B" "$R"
-  read -r confirm </dev/tty; log "FRESH confirm: $confirm"
-  if [ "$confirm" = YES ] || [ "$confirm" = yes ]; then
-    item "Fresh reinstall will run at step 10, after the cleaning"; return 0
-  fi
-  item "Fresh reinstall skipped"; return 1
-}
 
 run_sections() {
   local i
@@ -976,12 +803,11 @@ print_summary() {
   for i in "${!NAMES[@]}"; do
     printf '  %-30s %12s\n' "${NAMES[$i]}" "$(fmt_kb "${FREED[$i]}")"
     log "SUMMARY ${NAMES[$i]}: $(fmt_kb "${FREED[$i]}")"
-    [ "${NAMES[$i]}" = "Fresh reinstall from Play" ] || total=$((total + ${FREED[$i]}))
+    total=$((total + ${FREED[$i]}))
   done
   rule
   if [ "$DRY" = 1 ]; then
     printf '  %s%s%-30s %12s%s\n' "$B" "$GR" "Estimated saving" "$(fmt_kb "$total")" "$R"
-    [ "$FRESH_EST" -gt 0 ] && printf '  %-30s %12s\n' "+ Fresh reinstall (temporary)" "$(fmt_kb "$FRESH_EST")"
     printf '  %sTest run — nothing was changed.%s\n' "$D" "$R"
   else
     printf '  %s%s%-30s %12s%s\n' "$B" "$GR" "Total reclaimed" "$(fmt_kb $((USED0 - $(now_kb))))" "$R"
@@ -992,51 +818,91 @@ print_summary() {
   log "SUMMARY END ($1)"
 }
 
-# ── Selection ────────────────────────────────────────────────────────
+# ── Mode & selection ─────────────────────────────────────────────────
 NSEC=${#SEC_TITLE[@]}
-I_FRESH=9   # "Fresh reinstall from Play" — opt-in only
 RUN=()
-FULL=0
-# ── Optional test run ────────────────────────────────────────────────
-if [ "$ASSUME_YES" -eq 0 ] && ask "Do a test run first?" Y "measures what every section would free · changes nothing, no reboot"; then
-  DRY=1; TOTAL=$NSEC; STEP=0; NAMES=(); FREED=()
-  for ((i = 0; i < NSEC; i++)); do RUN[i]=1; done
-  printf '\n'; rule
-  printf '  %sTest run · measuring only, nothing is changed%s\n' "$B" "$R"
-  rule
-  START=$SECONDS
-  run_sections
-  print_summary "TEST RUN — ESTIMATE"
-  DRY=0; STEP=0; TOTAL=0; NAMES=(); FREED=(); RUN=(); USED0=$(now_kb)
-fi
+sel_all() { local i; for ((i = 0; i < NSEC; i++)); do RUN[i]=1; done; }
 
-if [ "$ASSUME_YES" -eq 1 ]; then
-  FULL=1
-elif ask "Run complete deep clean now?" Y "all cleaning sections, then reboot"; then
-  FULL=1
-fi
-
-if [ "$FULL" -eq 1 ]; then
-  for ((i = 0; i < NSEC; i++)); do RUN[i]=1; done
-  RUN[I_FRESH]=0
-  if [ "$ASSUME_YES" -eq 0 ] && fresh_prompt; then RUN[I_FRESH]=1; FRESH_OK=1; fi
+if [ "$NONINT" -eq 1 ]; then
+  [ -n "$MODE" ] || MODE=full
+  for ((i = 0; i < NSEC; i++)); do RUN[i]=0; done
+  if [ -z "$SEL" ] || [ "$SEL" = all ]; then sel_all
+  else
+    for n in ${SEL//,/ }; do
+      case "$n" in ''|*[!0-9]*) continue ;; esac
+      [ "$n" -ge 1 ] && [ "$n" -le "$NSEC" ] && RUN[n-1]=1
+    done
+  fi
+  [ "$DRYRUN" -eq 1 ] && DRY=1
+  [ "$MODE" = quick ] && QUICK=1
 else
-  printf '\n  %sChoose sections — press Enter to accept the default%s\n' "$D" "$R"
-  for ((i = 0; i < NSEC; i++)); do
-    [ "$i" -eq "$I_FRESH" ] && continue
-    if ask "${SEC_TITLE[i]}" Y "${SEC_HINT[i]}"; then RUN[i]=1; else RUN[i]=0; fi
-  done
-  # asked last: the only step that removes apps (data kept)
-  if fresh_prompt; then RUN[I_FRESH]=1; FRESH_OK=1; else RUN[I_FRESH]=0; fi
+  printf '\n  %sChoose the kind of clean%s\n' "$B" "$R"
+  printf '  %s1%s  Quick clean  %sonly what is safe while the phone runs · no reboot%s\n' "$CY" "$R" "$D" "$R"
+  printf '  %s2%s  Full clean   %severything, incl. caches rebuilt at boot · ends with a reboot%s\n' "$CY" "$R" "$D" "$R"
+  printf '  %s[1/2 · ENTER = 1]%s ' "$CY" "$R"
+  read -r a </dev/tty
+  if [ "$a" = 2 ]; then MODE=full; else MODE=quick; QUICK=1; fi
+  log "MODE: $MODE"
+  if ask "Do a test run first?" Y "measures what a $MODE clean would free · changes nothing"; then
+    DRY=1; sel_all; TOTAL=0
+    for ((i = 0; i < NSEC; i++)); do [ "$QUICK" = 1 ] && [ "${SEC_MODE[i]}" = reboot ] && RUN[i]=0; [ "${RUN[i]}" -eq 1 ] && TOTAL=$((TOTAL + 1)); done
+    printf '\n'; rule
+    printf '  %sTest run · %s clean · measuring only, nothing is changed%s\n' "$B" "$MODE" "$R"
+    rule
+    START=$SECONDS
+    run_sections
+    print_summary "TEST RUN — ESTIMATE"
+    DRY=0; STEP=0; TOTAL=0; NAMES=(); FREED=(); RUN=(); USED0=$(now_kb)
+  fi
+  if ask "Run every section?" Y "or choose them one by one"; then sel_all
+  else
+    printf '\n  %sChoose sections — press Enter to accept the default%s\n' "$D" "$R"
+    for ((i = 0; i < NSEC; i++)); do
+      if [ "$QUICK" = 1 ] && [ "${SEC_MODE[i]}" = reboot ]; then RUN[i]=0; continue; fi
+      if ask "${SEC_TITLE[i]}" Y "${SEC_HINT[i]}"; then RUN[i]=1; else RUN[i]=0; fi
+    done
+  fi
 fi
 
+# A quick clean never runs what needs a reboot
+if [ "$QUICK" = 1 ]; then
+  for ((i = 0; i < NSEC; i++)); do
+    if [ "${SEC_MODE[i]}" = reboot ] && [ "${RUN[i]}" -eq 1 ]; then
+      RUN[i]=0; warn "${SEC_TITLE[i]}: needs a reboot — full clean only. Skipped."
+    fi
+  done
+fi
+
+TOTAL=0
 for ((i = 0; i < NSEC; i++)); do [ "${RUN[i]}" -eq 1 ] && TOTAL=$((TOTAL + 1)); done
 if [ "$TOTAL" -eq 0 ]; then
   printf '\n  Nothing selected. Exiting.\n\n'; exit 0
 fi
 
+# A full clean always ends with a reboot: ask for permission before anything changes
+if [ "$QUICK" = 0 ] && [ "$DRY" != 1 ]; then
+  if [ "$NONINT" -eq 1 ]; then
+    if [ "$REBOOT_OK" -ne 1 ]; then
+      printf '\n  %s✗ A full clean ends with a reboot. Add --reboot-ok to confirm. Nothing was changed.%s\n\n' "$RD" "$R"
+      exit 2
+    fi
+  else
+    printf '\n'; rule
+    printf '  %s%sTHIS CLEAN ENDS WITH A REBOOT%s\n' "$B" "$YL" "$R"
+    rule
+    item "The phone restarts by itself when the clean is done"
+    item "Save anything open first · tip: turn on airplane mode before you start"
+    item "First boot after a full clean takes a few minutes longer"
+    if ! ask "Start the full clean and reboot when done?" N "type Y to give permission"; then
+      printf '\n  Cancelled. Nothing was changed.\n\n'; exit 0
+    fi
+  fi
+fi
+
 printf '\n'; rule
-printf '  %sRunning %d of %d sections · reboots when done%s\n' "$B" "$TOTAL" "$NSEC" "$R"
+if [ "$DRY" = 1 ]; then printf '  %sTest run · %s clean · %d of %d sections · measuring only, nothing is changed%s\n' "$B" "$MODE" "$TOTAL" "$NSEC" "$R"
+elif [ "$QUICK" = 1 ]; then printf '  %sQuick clean · %d of %d sections · no reboot%s\n' "$B" "$TOTAL" "$NSEC" "$R"
+else printf '  %sFull clean · %d of %d sections · reboots when done%s\n' "$B" "$TOTAL" "$NSEC" "$R"; fi
 rule
 START=$SECONDS
 
@@ -1044,11 +910,16 @@ START=$SECONDS
 run_sections
 
 # ── Summary ──────────────────────────────────────────────────────────
+if [ "$DRY" = 1 ]; then   # --dry: estimate only, nothing changed, no reboot
+  print_summary "TEST RUN — ESTIMATE"
+  printf '  %sLog  ~/.deeppurge/%s%s\n\n' "$D" "${LOG##*/}" "$R"
+  exit 0
+fi
 print_summary "SUMMARY"
 printf '  %sLog  ~/.deeppurge/%s%s\n\n' "$D" "${LOG##*/}" "$R"
-if [ "$FRESH_DONE" -eq 1 ] || [ -s "$PENDING" ]; then
-  printf '  %s%d apps are waiting to be reinstalled (data kept).%s\n' "$YL" "$(cnt "$PENDING")" "$R"
-  printf '  %sAfter reboot: Play Store → Manage apps → Not installed, or run  deeppurge --restore%s\n\n' "$D" "$R"
+if [ "$QUICK" = 1 ]; then
+  printf '  %sQuick clean done · no reboot needed.%s\n\n' "$GR" "$R"
+  exit 0
 fi
 
 # Final safety net: never reboot with an installed app missing its APK
@@ -1061,11 +932,15 @@ if ! apk_check; then
 fi
 item "All $(cat "$TMPD/apk_total") installed apps verified (APKs present)"
 
-for i in 5 4 3 2 1; do
-  printf '\r\033[K  %sRebooting in %ds%s  %s(Ctrl+C to cancel)%s' "$YL" "$i" "$R" "$D" "$R"
-  sleep 1
-done
-printf '\r\033[K  Rebooting…\n'
+if [ -t 1 ]; then
+  for i in 5 4 3 2 1; do
+    printf '\r\033[K  %sRebooting in %ds%s  %s(Ctrl+C to cancel)%s' "$YL" "$i" "$R" "$D" "$R"
+    sleep 1
+  done
+  printf '\r\033[K  Rebooting…\n'
+else
+  printf '  Rebooting in 5s\n'; sleep 5; printf '  Rebooting…\n'
+fi
 cleanup; trap - EXIT; settle 3; reboot
 exit 0
 }
