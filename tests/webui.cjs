@@ -13,27 +13,18 @@ const t = (name, cond) => { console.log((cond ? '  ok   ' : '  FAIL ') + name); 
   await p.goto(url);
   await p.evaluate(() => { const o = window.mockExec; window.mockExec = c => { window.logCmd(c); return o(c); }; });
   await p.waitForTimeout(300);
-  const secs = () => p.$$eval('input[data-sec]', e => e.map(x => ({ n: +x.dataset.sec, d: x.disabled, c: x.checked })));
   const lastRun = () => cmds.filter(c => c.includes('setsid')).pop() || '';
 
-  let s = await secs();
-  t('10 sections shown', s.length === 10);
-  t('quick mode: ART reset (9) locked', s.find(x => x.n === 9).d && !s.find(x => x.n === 2).d);
+  t('no section list or All toggle', (await p.$$('input[data-sec], #all')).length === 0);
   t('run button says quick', (await p.textContent('#runBtn')).includes('quick'));
-  t('nothing selected: run disabled', await p.isDisabled('#runBtn'));
-
-  await p.locator('input[data-sec="3"]').check({ force: true });
   await p.click('#runBtn'); await p.click('#dlgOk'); await p.waitForTimeout(1500);
-  t('quick run command', /cleaner\.sh --mode=quick --sections=3 /.test(lastRun()) && !lastRun().includes('reboot-ok'));
+  t('quick run command', /cleaner\.sh --mode=quick --sections=all /.test(lastRun()) && !lastRun().includes('reboot-ok'));
+  t('while running: Close disabled, Stop enabled', await p.isDisabled('#closeOut') && !(await p.isDisabled('#cancelBtn')));
+  await p.waitForTimeout(6000);
+  t('finished: Close enabled, Stop disabled', !(await p.isDisabled('#closeOut')) && await p.isDisabled('#cancelBtn'));
   await p.click('#closeOut');
 
   await p.click('#modeFull'); await p.waitForTimeout(100);
-  s = await secs();
-  t('full mode: ART reset unlocked', !s.find(x => x.n === 9).d);
-  await p.locator('#all').check({ force: true }); await p.waitForTimeout(100);
-  s = await secs();
-  t('All sections: every toggle off and greyed', s.every(x => x.d && !x.c));
-
   await p.click('#runBtn'); await p.waitForTimeout(100);
   t('full: reboot dialog', (await p.textContent('#dlgTitle')).includes('reboot'));
   t('full: OK disabled until box ticked', await p.isDisabled('#dlgOk'));

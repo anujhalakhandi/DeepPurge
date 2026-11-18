@@ -98,12 +98,6 @@ dialog input[type=text]{font:inherit;width:100%;padding:10px;border-radius:10px;
       <button id="modeFull" data-mode="full">Full clean<small>Ends with a reboot</small></button>
     </div>
     <p class="note" id="modeNote" style="margin:0 0 8px"></p>
-    <div class="row box">
-      <div class="txt"><div class="t">All sections</div>
-        <div class="h">Runs every section of this clean. Turns the section toggles off.</div></div>
-      <label class="sw"><input type="checkbox" id="all"><span></span></label>
-    </div>
-    <div id="secs"></div>
     <p class="note">The cleaner never runs on its own. It runs only when you press a button below.</p>
     <div class="btns">
       <button id="testBtn" class="grow">Test run</button>
@@ -114,7 +108,7 @@ dialog input[type=text]{font:inherit;width:100%;padding:10px;border-radius:10px;
   <section class="card hidden" id="outCard">
     <h2 id="outTitle">Output</h2>
     <pre class="out" id="out"></pre>
-    <div class="btns"><button id="cancelBtn" class="danger hidden">Stop</button><button id="closeOut">Close</button></div>
+    <div class="btns"><button id="cancelBtn" class="danger grow" disabled>Stop</button><button id="closeOut" class="grow" disabled>Close</button></div>
   </section>
 
   <section class="card">
@@ -170,7 +164,7 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;",
 
 /* ── State ───────────────────────────────────────────────────────── */
 let P = null;                                     // probe result
-const ui = { mode: "quick", all: false, sel: new Set() };
+const ui = { mode: "quick" };
 let running = false;
 
 function parseProbe(txt) {
@@ -186,11 +180,6 @@ function parseProbe(txt) {
   return r;
 }
 
-/* Why a section can't run in the current mode ("" = it can). */
-function sectionWhy(s) {
-  if (ui.mode === "quick" && s.mode === "reboot") return "Needs a reboot: full clean only.";
-  return "";
-}
 function tuneWhy(t) {
   const name = t.path.split("/").pop();
   if (!t.exists) return "Not supported: this kernel has no " + name + ".";
@@ -241,35 +230,15 @@ function render() {
   $("modeNote").textContent = quick
     ? "Only what is safe while the phone runs. Caches that are rebuilt at boot are left for a full clean."
     : "Everything, including caches rebuilt at boot. The phone reboots when the clean is done, and you'll be asked first.";
-  $("all").checked = ui.all;
-  $("secs").innerHTML = P.sec.map(s => {
-    const why = sectionWhy(s);
-    const dis = ui.all || !!why;
-    const on = !dis && ui.sel.has(s.n);
-    const chip = s.mode === "reboot" ? '<span class="chip warn">Reboot</span>' : "";
-    const skip = quick && s.mode === "mixed" && s.skip ? `<div class="skip">Quick clean leaves out: ${esc(s.skip)}</div>` : "";
-    return `<div class="row ${why ? "na" : dis ? "dis" : ""}"><div class="txt">
-      <div class="t"><span class="num">${String(s.n).padStart(2, "0")}</span>${esc(s.title)}${chip}</div>
-      <div class="h">${esc(s.hint)}</div>${skip}
-      ${why ? `<div class="why">${esc(why)}</div>` : ""}</div>
-      <label class="sw"><input type="checkbox" data-sec="${s.n}" ${on ? "checked" : ""} ${dis ? "disabled" : ""}><span></span></label></div>`;
-  }).join("");
   $("runBtn").textContent = quick ? "Run quick clean" : "Run full clean & reboot";
 
   updateButtons();
 }
 
-/* Sections that will run: "all", or "3,4,6" (only ones allowed in this mode). */
-function selection() {
-  if (ui.all) return "all";
-  return P.sec.filter(s => ui.sel.has(s.n) && !sectionWhy(s)).map(s => s.n).join(",");
-}
-function selectionText(sel) {
-  if (sel === "all") return ui.mode === "quick" ? "every section that works without a reboot" : "every section";
-  return "sections " + sel.replace(/,/g, ", ");
-}
 function updateButtons() {
-  const can = !!selection() && !running;
+  const can = !running;
+  $("cancelBtn").disabled = !running;
+  $("closeOut").disabled = running;
   $("testBtn").disabled = !can;
   $("runBtn").disabled = !can;
   $("revertBtn").disabled = running;
@@ -277,7 +246,7 @@ function updateButtons() {
 }
 
 async function saveUi() {
-  const body = `mode=${ui.mode}\nall=${ui.all ? 1 : 0}\nsections=${[...ui.sel].sort((a, b) => a - b).join(",")}\n`;
+  const body = `mode=${ui.mode}\n`;
   await exec(`mkdir -p ${CONF} && printf %s ${q(body)} > ${CONF}/webui.conf`);
 }
 async function saveTuneOff() {
@@ -328,7 +297,6 @@ function poll(t0) {
     const atEnd = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 20;
     pre.textContent = txt.replace(/@@RUN=\d\s*$/, "").replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "").replace(/\r/g, "") || "Starting…";
     if (atEnd) pre.scrollTop = pre.scrollHeight;
-    $("cancelBtn").classList.toggle("hidden", !live);
     if (live || Date.now() - t0 < 4000) { poll(t0); return; }   // give the engine a moment to take its lock
     running = false; updateButtons();
     await refresh();
@@ -341,16 +309,6 @@ for (const id of ["modeQuick", "modeFull"]) {
 }
 document.addEventListener("change", async e => {
   const el = e.target;
-  if (el.id === "all") {
-    ui.all = el.checked;
-    if (ui.all) ui.sel.clear();            // All sections: the section toggles go off
-    await saveUi(); render(); return;
-  }
-  if (el.dataset.sec) {
-    const n = +el.dataset.sec;
-    el.checked ? ui.sel.add(n) : ui.sel.delete(n);
-    await saveUi(); updateButtons(); return;
-  }
   if (el.dataset.tune) {
     const t = P.tune[+el.dataset.tune];
     t.off = !el.checked;
@@ -361,23 +319,22 @@ document.addEventListener("change", async e => {
 });
 
 $("testBtn").onclick = () => {
-  startEngine(`--mode=${ui.mode} --sections=${selection()} --dry`, `Test run · ${ui.mode} clean · nothing is changed`);
+  startEngine(`--mode=${ui.mode} --sections=all --dry`, `Test run · ${ui.mode} clean · nothing is changed`);
 };
 $("runBtn").onclick = async () => {
-  const sel = selection();
   if (ui.mode === "quick") {
-    const ok = await dialog("Quick clean", `<p>Runs ${esc(selectionText(sel))}. The phone does <b>not</b> reboot.</p>
+    const ok = await dialog("Quick clean", `<p>Runs every section that works without a reboot. The phone does <b>not</b> reboot.</p>
       <p class="note">Items that need a reboot are left out. Use a full clean for those.</p>`, "Run quick clean");
-    if (ok) startEngine(`--mode=quick --sections=${sel}`, "Quick clean · no reboot");
+    if (ok) startEngine(`--mode=quick --sections=all`, "Quick clean · no reboot");
     return;
   }
-  const ok = await dialog("This clean ends with a reboot", `<p>Runs ${esc(selectionText(sel))}, then the phone <b>reboots by itself</b>.</p>
+  const ok = await dialog("This clean ends with a reboot", `<p>Runs every section, then the phone <b>reboots by itself</b>.</p>
     <ul>
       <li>Save anything open first. Tip: turn on airplane mode before you start.</li>
       <li>The first boot after a full clean takes a few minutes longer.</li>
       <li>Before rebooting, every installed app is checked for its APK. If one is missing, the reboot is refused.</li>
     </ul>`, "Clean & reboot", { danger: true, ack: "I understand the phone will reboot when the clean is done." });
-  if (ok) startEngine(`--mode=full --sections=${sel} --reboot-ok`, "Full clean · the phone reboots when done");
+  if (ok) startEngine(`--mode=full --sections=all --reboot-ok`, "Full clean · the phone reboots when done");
 };
 $("cancelBtn").onclick = async () => {
   if (!await dialog("Stop the run?", "<p>Stops after the current step. Nothing is undone, and the phone does not reboot.</p>", "Stop", { danger: true })) return;
@@ -404,8 +361,6 @@ async function refresh() {
   await refresh();
   const k = P.kv;
   ui.mode = k.ui_mode === "full" ? "full" : "quick";
-  ui.all = k.ui_all === "1";
-  ui.sel = ui.all ? new Set() : new Set((k.ui_sections || "").split(",").filter(Boolean).map(Number));
   render();
   if (k.running) { running = true; updateButtons(); showOut("Running"); poll(Date.now()); }
 })();

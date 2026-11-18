@@ -2,6 +2,11 @@
 
 Each `## <version>` heading becomes the notes of the GitHub release for that version.
 
+## 10.2
+**WebUI**
+- The 10 section toggles and the "All sections" switch are gone. You pick Quick clean or Full clean; each runs every section it can.
+- One Stop button and one Close button under the output. Close is greyed out and can't be pressed while a command runs; Stop is only active while one runs.
+
 ## 10.1
 First release of the **DeepPurge module** for KernelSU, with a WebUI. It works on its own: no Termux, no bash, only the phone's built-in shell.
 
