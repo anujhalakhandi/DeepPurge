@@ -13,3 +13,8 @@ jobs:
         run: shellcheck -S warning -s sh module/*.sh
       - name: Build module
         run: tools/build-module.sh && sh -n dist/module/tuning.sh
+      - name: Upload test build
+        uses: actions/upload-artifact@v4
+        with:
+          name: DeepPurge-module-test
+          path: dist/DeepPurge-v*.zip
